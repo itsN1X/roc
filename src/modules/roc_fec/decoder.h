@@ -22,7 +22,6 @@
 #include "roc_packet/ipacket_reader.h"
 #include "roc_packet/ipacket_parser.h"
 #include "roc_packet/ipacket.h"
-#include "roc_packet/ifec_packet.h"
 #include "roc_packet/packet_queue.h"
 
 #include "roc_fec/iblock_decoder.h"
@@ -91,7 +90,7 @@ private:
     packet::PacketQueue fec_queue_;
 
     core::Array<packet::IPacketConstPtr, N_DATA_PACKETS> data_block_;
-    core::Array<packet::IFECPacketConstPtr, N_FEC_PACKETS> fec_block_;
+    core::Array<packet::IPacketConstPtr, N_FEC_PACKETS> fec_block_;
 
     bool is_alive_;
     bool is_started_;
