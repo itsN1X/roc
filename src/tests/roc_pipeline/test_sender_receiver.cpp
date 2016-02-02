@@ -13,8 +13,8 @@
 #include "roc_rtp/composer.h"
 #include "roc_rtp/parser.h"
 #include "roc_datagram/datagram_queue.h"
-#include "roc_pipeline/client.h"
-#include "roc_pipeline/server.h"
+#include "roc_pipeline/sender.h"
+#include "roc_pipeline/receiver.h"
 
 #include "test_sample_stream.h"
 #include "test_sample_queue.h"
@@ -25,13 +25,13 @@ namespace test {
 
 using namespace pipeline;
 
-TEST_GROUP(client_server) {
+TEST_GROUP(sender_receiver) {
     enum {
         // Sending port.
-        ClientPort = 501,
+        SenderPort = 501,
 
         // Receiving port.
-        ServerPort = 502,
+        ReceiverPort = 502,
 
         // Number of samples in every channel per packet.
         PktSamples = ROC_CONFIG_DEFAULT_PACKET_SAMPLES,
@@ -58,8 +58,8 @@ TEST_GROUP(client_server) {
     rtp::Composer packet_composer;
     rtp::Parser packet_parser;
 
-    core::ScopedPtr<Client> client;
-    core::ScopedPtr<Server> server;
+    core::ScopedPtr<Sender> sender;
+    core::ScopedPtr<Receiver> receiver;
 
     void setup() {
     }
@@ -70,8 +70,8 @@ TEST_GROUP(client_server) {
         LONGS_EQUAL(0, network.size());
     }
 
-    void init_client(int options, size_t random_loss = 0) {
-        ClientConfig config;
+    void init_sender(int options, size_t random_loss = 0) {
+        SenderConfig config;
 
         config.options = options;
         config.channels = ChannelMask;
@@ -81,15 +81,15 @@ TEST_GROUP(client_server) {
         config.fec.n_source_packets = 20;
         config.fec.n_repair_packets = 10;
 
-        client.reset(
-            new Client(input, network, datagram_composer, packet_composer, config));
+        sender.reset(
+            new Sender(input, network, datagram_composer, packet_composer, config));
 
-        client->set_sender(new_address(ClientPort));
-        client->set_receiver(new_address(ServerPort));
+        sender->set_sender(new_address(SenderPort));
+        sender->set_receiver(new_address(ReceiverPort));
     }
 
-    void init_server(int options) {
-        ServerConfig config;
+    void init_receiver(int options) {
+        ReceiverConfig config;
 
         config.options = options;
         config.channels = ChannelMask;
@@ -101,12 +101,12 @@ TEST_GROUP(client_server) {
         config.fec.n_source_packets = 20;
         config.fec.n_repair_packets = 10;
 
-        server.reset(new Server(network, output, config));
+        receiver.reset(new Receiver(network, output, config));
 
-        server->add_port(new_address(ServerPort), packet_parser);
+        receiver->add_port(new_address(ReceiverPort), packet_parser);
     }
 
-    void flow_client_server() {
+    void flow_sender_receiver() {
         SampleStream si;
 
         for (size_t n = 0; n < MaxBuffers; n++) {
@@ -116,17 +116,17 @@ TEST_GROUP(client_server) {
         LONGS_EQUAL(MaxBuffers, input.size());
 
         while (input.size() != 0) {
-            CHECK(client->tick());
+            CHECK(sender->tick());
         }
 
-        client->flush();
+        sender->flush();
 
         CHECK(network.size() >= MaxBuffers * BufSamples / PktSamples);
 
         SampleStream so;
 
         for (size_t n = 0; n < MaxBuffers; n++) {
-            CHECK(server->tick());
+            CHECK(receiver->tick());
 
             LONGS_EQUAL(1, output.size());
 
@@ -139,53 +139,53 @@ TEST_GROUP(client_server) {
     }
 };
 
-TEST(client_server, bare) {
-    init_client(0);
-    init_server(0);
-    flow_client_server();
+TEST(sender_receiver, bare) {
+    init_sender(0);
+    init_receiver(0);
+    flow_sender_receiver();
 }
 
-TEST(client_server, interleaving) {
-    init_client(EnableInterleaving);
-    init_server(0);
-    flow_client_server();
+TEST(sender_receiver, interleaving) {
+    init_sender(EnableInterleaving);
+    init_receiver(0);
+    flow_sender_receiver();
 }
 
 #ifdef ROC_TARGET_OPENFEC
-TEST(client_server, ldpc_only_client) {
-    init_client(EnableFEC);
-    init_server(0);
-    flow_client_server();
+TEST(sender_receiver, ldpc_only_sender) {
+    init_sender(EnableFEC);
+    init_receiver(0);
+    flow_sender_receiver();
 }
 
-TEST(client_server, ldpc_only_server) {
-    init_client(0);
-    init_server(EnableFEC);
-    flow_client_server();
+TEST(sender_receiver, ldpc_only_receiver) {
+    init_sender(0);
+    init_receiver(EnableFEC);
+    flow_sender_receiver();
 }
 
-TEST(client_server, ldpc) {
-    init_client(EnableFEC);
-    init_server(EnableFEC);
-    flow_client_server();
+TEST(sender_receiver, ldpc) {
+    init_sender(EnableFEC);
+    init_receiver(EnableFEC);
+    flow_sender_receiver();
 }
 
-TEST(client_server, ldpc_interleaving) {
-    init_client(EnableFEC | EnableInterleaving);
-    init_server(EnableFEC);
-    flow_client_server();
+TEST(sender_receiver, ldpc_interleaving) {
+    init_sender(EnableFEC | EnableInterleaving);
+    init_receiver(EnableFEC);
+    flow_sender_receiver();
 }
 
-IGNORE_TEST(client_server, ldpc_random_loss) {
-    init_client(EnableFEC, RandomLoss);
-    init_server(EnableFEC);
-    flow_client_server();
+IGNORE_TEST(sender_receiver, ldpc_random_loss) {
+    init_sender(EnableFEC, RandomLoss);
+    init_receiver(EnableFEC);
+    flow_sender_receiver();
 }
 
-IGNORE_TEST(client_server, ldpc_interleaving_random_loss) {
-    init_client(EnableFEC | EnableInterleaving, RandomLoss);
-    init_server(EnableFEC);
-    flow_client_server();
+IGNORE_TEST(sender_receiver, ldpc_interleaving_random_loss) {
+    init_sender(EnableFEC | EnableInterleaving, RandomLoss);
+    init_receiver(EnableFEC);
+    flow_sender_receiver();
 }
 #endif // ROC_TARGET_OPENFEC
 
