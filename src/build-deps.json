@@ -32,6 +32,7 @@
             "roc_datagram",
             "roc_packet",
             "roc_fec",
+            "roc_rtp",
             "roc_audio"
         ],
         "roc_netio": [
@@ -54,9 +55,6 @@
             "roc_rtp"
         ],
         "roc_fec": [
-            "roc_rtp"
-        ],
-        "roc_pipeline": [
             "roc_rtp"
         ]
     },

@@ -10,8 +10,6 @@
 
 #include "roc_config/config.h"
 #include "roc_core/scoped_ptr.h"
-#include "roc_rtp/composer.h"
-#include "roc_rtp/parser.h"
 #include "roc_datagram/datagram_queue.h"
 #include "roc_pipeline/sender.h"
 #include "roc_pipeline/receiver.h"
@@ -55,9 +53,6 @@ TEST_GROUP(sender_receiver) {
     datagram::DatagramQueue network;
     TestDatagramComposer datagram_composer;
 
-    rtp::Composer packet_composer;
-    rtp::Parser packet_parser;
-
     core::ScopedPtr<Sender> sender;
     core::ScopedPtr<Receiver> receiver;
 
@@ -78,11 +73,13 @@ TEST_GROUP(sender_receiver) {
         config.samples_per_packet = PktSamples;
         config.random_loss_rate = random_loss;
 
-        sender.reset(
-            new Sender(input, network, datagram_composer, packet_composer, config));
+        sender.reset(new Sender(input, network, datagram_composer, config));
 
-        sender->set_sender(new_address(SenderPort));
-        sender->set_receiver(new_address(ReceiverPort));
+        sender->set_audio_port(new_address(SenderPort), new_address(ReceiverPort),
+                               Proto_RTP);
+
+        sender->set_repair_port(new_address(SenderPort), new_address(ReceiverPort),
+                                Proto_RTP); // FIXME
     }
 
     void init_receiver(int options) {
@@ -97,7 +94,7 @@ TEST_GROUP(sender_receiver) {
 
         receiver.reset(new Receiver(network, output, config));
 
-        receiver->add_port(new_address(ReceiverPort), packet_parser);
+        receiver->add_port(new_address(ReceiverPort), Proto_RTP);
     }
 
     void flow_sender_receiver() {
