@@ -11,7 +11,7 @@
 #include "roc_datagram/address_to_str.h"
 #include "roc_datagram/datagram_queue.h"
 #include "roc_audio/sample_buffer_queue.h"
-#include "roc_pipeline/server.h"
+#include "roc_pipeline/receiver.h"
 #include "roc_rtp/parser.h"
 #include "roc_sndio/writer.h"
 #include "roc_netio/transceiver.h"
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    pipeline::ServerConfig config;
+    pipeline::ReceiverConfig config;
     if (args.fec_arg == fec_arg_yes) {
         config.options |= pipeline::EnableFEC;
     }
@@ -119,8 +119,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    pipeline::Server server(dgm_queue, sample_queue, config);
-    server.add_port(addr, rtp_parser);
+    pipeline::Receiver receiver(dgm_queue, sample_queue, config);
+    receiver.add_port(addr, rtp_parser);
 
     sndio::Writer writer(sample_queue, config.channels, config.sample_rate);
     if (!writer.open(args.output_arg, args.type_arg)) {
@@ -133,8 +133,8 @@ int main(int argc, char** argv) {
 
     writer.start();
 
-    server.start();
-    server.join();
+    receiver.start();
+    receiver.join();
 
     writer.join();
 
