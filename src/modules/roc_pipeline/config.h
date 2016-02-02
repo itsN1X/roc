@@ -18,14 +18,25 @@
 #include "roc_core/heap_pool.h"
 #include "roc_datagram/default_buffer_composer.h"
 #include "roc_packet/units.h"
+#include "roc_rtp/audio_packet.h"
+#include "roc_rtp/container_packet.h"
 #include "roc_audio/sample_buffer.h"
 #include "roc_pipeline/session.h"
 
 namespace roc {
 namespace pipeline {
 
+//! Receiver and sender protocols.
+enum Protocol {
+    //! Bare RTP packets.
+    //! @remarks
+    //!  RTP packet with arbitrary payload type, including audio packets
+    //!  and FEC repair packets.
+    Proto_RTP
+};
+
 //! Receiver and sender options.
-enum Options {
+enum Option {
     //! Use scaler and resamplers (receiver).
     EnableResampling = (1 << 0),
 
@@ -61,7 +72,9 @@ struct ReceiverConfig {
         , max_session_packets(ROC_CONFIG_MAX_SESSION_PACKETS)
         , byte_buffer_composer(&datagram::default_buffer_composer())
         , sample_buffer_composer(&audio::default_buffer_composer())
-        , session_pool(&core::HeapPool<Session>::instance()) {
+        , session_pool(&core::HeapPool<Session>::instance())
+        , rtp_audio_packet_pool(&core::HeapPool<rtp::AudioPacket>::instance())
+        , rtp_container_packet_pool(&core::HeapPool<rtp::ContainerPacket>::instance()) {
     }
 
     //! Bitmask of enabled session options.
@@ -100,12 +113,18 @@ struct ReceiverConfig {
     //! Composer for sample buffers.
     audio::ISampleBufferComposer* sample_buffer_composer;
 
-    //! Session pool.
-    core::IPool<Session>* session_pool;
-
     //! Forward Error Correction code scheme configuration. FEC should
     //! be enabled by adding flag EnableFEC in the field \ref ClientConfig.options.
     fec::FECConfig fec;
+
+    //! Session pool.
+    core::IPool<Session>* session_pool;
+
+    //! RTP audio packet pool.
+    core::IPool<rtp::AudioPacket>* rtp_audio_packet_pool;
+
+    //! RTP container packet pool.
+    core::IPool<rtp::ContainerPacket>* rtp_container_packet_pool;
 };
 
 //! Sender config.
@@ -119,7 +138,9 @@ struct SenderConfig {
         , random_loss_rate(0)
         , random_delay_rate(0)
         , random_delay_time(0)
-        , byte_buffer_composer(&datagram::default_buffer_composer()) {
+        , byte_buffer_composer(&datagram::default_buffer_composer())
+        , rtp_audio_packet_pool(&core::HeapPool<rtp::AudioPacket>::instance())
+        , rtp_container_packet_pool(&core::HeapPool<rtp::ContainerPacket>::instance()) {
     }
 
     //! Bitmask of enabled sender options.
@@ -149,6 +170,12 @@ struct SenderConfig {
 
     //! Composer for byte buffers.
     core::IByteBufferComposer* byte_buffer_composer;
+
+    //! RTP audio packet pool.
+    core::IPool<rtp::AudioPacket>* rtp_audio_packet_pool;
+
+    //! RTP container packet pool.
+    core::IPool<rtp::ContainerPacket>* rtp_container_packet_pool;
 };
 
 } // namespace pipeline
