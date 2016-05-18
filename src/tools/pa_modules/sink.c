@@ -44,7 +44,6 @@
 #include <pulsecore/modargs.h>
 #include <pulsecore/log.h>
 #include <pulsecore/socket-client.h>
-#include <pulsecore/esound.h>
 #include <pulsecore/authkey.h>
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/thread.h>
@@ -70,13 +69,6 @@ int pa__init(pa_module*m);
 void pa__done(pa_module*m);
 int pa__get_n_used(pa_module*m);
 
-const char* pa__get_author(void);
-const char* pa__get_description(void);
-const char* pa__get_usage(void);
-const char* pa__get_version(void);
-const char* pa__get_deprecated(void);
-pa_bool_t pa__load_once(void);
-
 PA_MODULE_AUTHOR("Mikhail Baranov");
 PA_MODULE_DESCRIPTION("Roc Sink");
 PA_MODULE_VERSION(PACKAGE_VERSION);
@@ -89,7 +81,7 @@ PA_MODULE_USAGE(
         "rate=<sample rate> "
         "channels=<number of channels>");
 
-#define DEFAULT_SINK_NAME "esound_out"
+#define DEFAULT_SINK_NAME "roc_out"
 
 struct userdata {
     pa_core *core;
@@ -119,7 +111,6 @@ struct userdata {
 
     pa_usec_t latency;
 
-    esd_format_t format;
     int32_t rate;
 
     pa_smoother *smoother;
@@ -148,8 +139,17 @@ enum {
     SINK_MESSAGE_PASS_SOCKET = PA_SINK_MESSAGE_MAX
 };
 
+#include <stdio.h>
+
+void roc_msg( const int code )
+{
+    printf( "roc_msg: %d\n", code );
+}
+
 static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SINK(o)->userdata;
+
+    roc_msg( code );
 
     switch (code) {
 
@@ -206,6 +206,18 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
+void roc_thread()
+{
+    size_t i = 0 ;
+    i++ ;
+}
+
+void roc_send_samples()
+{
+    size_t i = 0 ;
+    i++ ;
+}
+
 static void thread_func(void *userdata) {
     struct userdata *u = userdata;
     int write_type = 0;
@@ -221,12 +233,16 @@ static void thread_func(void *userdata) {
     for (;;) {
         int ret;
 
+        roc_thread();
+
         if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
             pa_sink_process_rewind(u->sink, 0);
 
         if (u->rtpoll_item) {
             struct pollfd *pollfd;
             pollfd = pa_rtpoll_item_get_pollfd(u->rtpoll_item, NULL);
+
+            roc_send_samples();
 
             /* Render some data and write it to the fifo */
             if (PA_SINK_IS_OPENED(u->sink->thread_info.state) && pollfd->revents) {
@@ -243,7 +259,8 @@ static void thread_func(void *userdata) {
                     pa_assert(u->memchunk.length > 0);
 
                     p = pa_memblock_acquire(u->memchunk.memblock);
-                    l = pa_write(u->fd, (uint8_t*) p + u->memchunk.index, u->memchunk.length, &write_type);
+                    roc_send_samples();
+                    l = u->memchunk.length ;
                     pa_memblock_release(u->memchunk.memblock);
 
                     pa_assert(l != 0);
@@ -343,195 +360,10 @@ finish:
     pa_log_debug("Thread shutting down");
 }
 
-static int do_write(struct userdata *u) {
-    ssize_t r;
-    pa_assert(u);
-
-    if (!pa_iochannel_is_writable(u->io))
-        return 0;
-
-    if (u->write_data) {
-        pa_assert(u->write_index < u->write_length);
-
-        if ((r = pa_iochannel_write(u->io, (uint8_t*) u->write_data + u->write_index, u->write_length - u->write_index)) <= 0) {
-            pa_log("write() failed: %s", pa_cstrerror(errno));
-            return -1;
-        }
-
-        u->write_index += (size_t) r;
-        pa_assert(u->write_index <= u->write_length);
-
-        if (u->write_index == u->write_length) {
-            pa_xfree(u->write_data);
-            u->write_data = NULL;
-            u->write_index = u->write_length = 0;
-        }
-    }
-
-    if (!u->write_data && u->state == STATE_PREPARE) {
-        int so_sndbuf = 0;
-        socklen_t sl = sizeof(int);
-
-        /* OK, we're done with sending all control data we need to, so
-         * let's hand the socket over to the IO thread now */
-
-        pa_assert(u->fd < 0);
-        u->fd = pa_iochannel_get_send_fd(u->io);
-
-        pa_iochannel_set_noclose(u->io, TRUE);
-        pa_iochannel_free(u->io);
-        u->io = NULL;
-
-        pa_make_tcp_socket_low_delay(u->fd);
-
-        if (getsockopt(u->fd, SOL_SOCKET, SO_SNDBUF, (void *) &so_sndbuf, &sl) < 0)
-            pa_log_warn("getsockopt(SO_SNDBUF) failed: %s", pa_cstrerror(errno));
-        else {
-            pa_log_debug("SO_SNDBUF is %zu.", (size_t) so_sndbuf);
-            pa_sink_set_max_request(u->sink, PA_MAX((size_t) so_sndbuf, u->block_size));
-        }
-
-        pa_log_debug("Connection authenticated, handing fd to IO thread...");
-
-        pa_asyncmsgq_post(u->thread_mq.inq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_PASS_SOCKET, NULL, 0, NULL, NULL);
-        u->state = STATE_RUNNING;
-    }
-
-    return 0;
-}
-
-static int handle_response(struct userdata *u) {
-    pa_assert(u);
-
-    switch (u->state) {
-
-        case STATE_AUTH:
-            pa_assert(u->read_length == sizeof(int32_t));
-
-            /* Process auth data */
-            if (!*(int32_t*) u->read_data) {
-                pa_log("Authentication failed: %s", pa_cstrerror(errno));
-                return -1;
-            }
-
-            /* Request latency data */
-            pa_assert(!u->write_data);
-            *(int32_t*) (u->write_data = pa_xmalloc(u->write_length = sizeof(int32_t))) = ESD_PROTO_LATENCY;
-
-            u->write_index = 0;
-            u->state = STATE_LATENCY;
-
-            /* Space for next response */
-            pa_assert(u->read_length >= sizeof(int32_t));
-            u->read_index = 0;
-            u->read_length = sizeof(int32_t);
-
-            break;
-
-        case STATE_LATENCY: {
-            int32_t *p;
-            pa_assert(u->read_length == sizeof(int32_t));
-
-            /* Process latency info */
-            u->latency = (pa_usec_t) ((double) (*(int32_t*) u->read_data) * 1000000 / 44100);
-            if (u->latency > 10000000) {
-                pa_log_warn("Invalid latency information received from server");
-                u->latency = 0;
-            }
-
-            /* Create stream */
-            pa_assert(!u->write_data);
-            p = u->write_data = pa_xmalloc0(u->write_length = sizeof(int32_t)*3+ESD_NAME_MAX);
-            *(p++) = ESD_PROTO_STREAM_PLAY;
-            *(p++) = u->format;
-            *(p++) = u->rate;
-            pa_strlcpy((char*) p, "PulseAudio Tunnel", ESD_NAME_MAX);
-
-            u->write_index = 0;
-            u->state = STATE_PREPARE;
-
-            /* Don't read any further */
-            pa_xfree(u->read_data);
-            u->read_data = NULL;
-            u->read_index = u->read_length = 0;
-
-            break;
-        }
-
-        default:
-            pa_assert_not_reached();
-    }
-
-    return 0;
-}
-
-static int do_read(struct userdata *u) {
-    pa_assert(u);
-
-    if (!pa_iochannel_is_readable(u->io))
-        return 0;
-
-    if (u->state == STATE_AUTH || u->state == STATE_LATENCY) {
-        ssize_t r;
-
-        if (!u->read_data)
-            return 0;
-
-        pa_assert(u->read_index < u->read_length);
-
-        if ((r = pa_iochannel_read(u->io, (uint8_t*) u->read_data + u->read_index, u->read_length - u->read_index)) <= 0) {
-            pa_log("read() failed: %s", r < 0 ? pa_cstrerror(errno) : "EOF");
-            return -1;
-        }
-
-        u->read_index += (size_t) r;
-        pa_assert(u->read_index <= u->read_length);
-
-        if (u->read_index == u->read_length)
-            return handle_response(u);
-    }
-
-    return 0;
-}
-
-static void io_callback(pa_iochannel *io, void*userdata) {
-    struct userdata *u = userdata;
-    pa_assert(u);
-
-    if (do_read(u) < 0 || do_write(u) < 0) {
-
-        if (u->io) {
-            pa_iochannel_free(u->io);
-            u->io = NULL;
-        }
-
-        pa_module_unload_request(u->module, TRUE);
-    }
-}
-
-static void on_connection(pa_socket_client *c, pa_iochannel*io, void *userdata) {
-    struct userdata *u = userdata;
-
-    pa_socket_client_unref(u->client);
-    u->client = NULL;
-
-    if (!io) {
-        pa_log("Connection failed: %s", pa_cstrerror(errno));
-        pa_module_unload_request(u->module, TRUE);
-        return;
-    }
-
-    pa_assert(!u->io);
-    u->io = io;
-    pa_iochannel_set_callback(u->io, io_callback, u);
-
-    pa_log_debug("Connection established, authenticating ...");
-}
-
-size_t roc_sink_hw()
+void roc_sink_hw()
 {
     size_t i = 0 ;
-    return  i ;
+    i++ ;
 }
 
 int pa__init(pa_module*m) {
@@ -582,9 +414,6 @@ int pa__init(pa_module*m) {
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
     u->rtpoll_item = NULL;
 
-    u->format =
-        (ss.format == PA_SAMPLE_U8 ? ESD_BITS8 : ESD_BITS16) |
-        (ss.channels == 2 ? ESD_STEREO : ESD_MONO);
     u->rate = (int32_t) ss.rate;
     u->block_size = pa_usec_to_bytes(PA_USEC_PER_SEC/20, &ss);
 
@@ -605,7 +434,7 @@ int pa__init(pa_module*m) {
     pa_sink_new_data_set_name(&data, pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));
     pa_sink_new_data_set_sample_spec(&data, &ss);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_STRING, roc_rec_adress);
-    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, "esd");
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, "roc");
     pa_proplist_setf(data.proplist, PA_PROP_DEVICE_DESCRIPTION, "Roc Output on %s", roc_rec_adress);
 
     if (pa_modargs_get_proplist(ma, "sink_properties", data.proplist, PA_UPDATE_REPLACE) < 0) {
