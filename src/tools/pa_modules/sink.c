@@ -1,203 +1,113 @@
-/*
- * Copyright (c) 2015 Mikhail Baranov
- * Copyright (c) 2015 Victor Gaydov
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- */
+/***
+  This file is part of PulseAudio.
+
+  Copyright 2004-2008 Lennart Poettering
+
+  PulseAudio is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published
+  by the Free Software Foundation; either version 2.1 of the License,
+  or (at your option) any later version.
+
+  PulseAudio is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with PulseAudio; if not, write to the Free Software
+  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+  USA.
+***/
 
 #include <config.h>
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-#include <string.h>
 #include <unistd.h>
-
-#ifdef HAVE_NETINET_IN_H
-#include <netinet/in.h>
-#endif
-
-#ifdef HAVE_NETINET_TCP_H
-#include <netinet/tcp.h>
-#endif
-
-#ifdef HAVE_SYS_IOCTL_H
-#include <sys/ioctl.h>
-#endif
-
-#ifdef HAVE_LINUX_SOCKIOS_H
-#include <linux/sockios.h>
-#endif
 
 #include <pulse/rtclock.h>
 #include <pulse/timeval.h>
 #include <pulse/xmalloc.h>
 
-#include <pulsecore/socket.h>
-#include <pulsecore/core-error.h>
-#include <pulsecore/iochannel.h>
+#include <pulsecore/i18n.h>
+#include <pulsecore/macro.h>
 #include <pulsecore/sink.h>
 #include <pulsecore/module.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/modargs.h>
 #include <pulsecore/log.h>
-#include <pulsecore/socket-client.h>
-#include <pulsecore/authkey.h>
-#include <pulsecore/thread-mq.h>
 #include <pulsecore/thread.h>
-#include <pulsecore/time-smoother.h>
-#include <pulsecore/socket-util.h>
+#include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
-#include <pulsecore/poll.h>
-#include <pulsecore/core.h>
-#include <pulsecore/module.h>
-#include <pulsecore/macro.h>
 
-// #define pa__init module_roc_sink_LTX_pa__init
-// #define pa__done module_roc_sink_LTX_pa__done
-// #define pa__get_author module_roc_sink_LTX_pa__get_author
-// #define pa__get_description module_roc_sink_LTX_pa__get_description
-// #define pa__get_usage module_roc_sink_LTX_pa__get_usage
-// #define pa__get_version module_roc_sink_LTX_pa__get_version
-// #define pa__get_deprecated module_roc_sink_LTX_pa__get_deprecated
-// #define pa__load_once module_roc_sink_LTX_pa__load_once
-// #define pa__get_n_used module_roc_sink_LTX_pa__get_n_used
+PA_MODULE_AUTHOR("Mikhail Baranov");
+PA_MODULE_DESCRIPTION(_("Roc Sink"));
+PA_MODULE_VERSION(PACKAGE_VERSION);
+PA_MODULE_LOAD_ONCE(FALSE);
+PA_MODULE_USAGE(
+        "sink_name=<name of sink> "
+        "sink_properties=<properties for the sink> "
+        "format=<sample format> "
+        "rate=<sample rate> "
+        "channels=<number of channels> "
+        "channel_map=<channel map>");
+
+#define DEFAULT_SINK_NAME "roc-sink"
+#define BLOCK_USEC (PA_USEC_PER_SEC / 8)
 
 int pa__init(pa_module*m);
 void pa__done(pa_module*m);
 int pa__get_n_used(pa_module*m);
 
-PA_MODULE_AUTHOR("Mikhail Baranov");
-PA_MODULE_DESCRIPTION("Roc Sink");
-PA_MODULE_VERSION(PACKAGE_VERSION);
-PA_MODULE_LOAD_ONCE(FALSE);
-PA_MODULE_USAGE(
-        "sink_name=<name for the sink> "
-        "sink_properties=<properties for the sink> "
-        "server=<address> cookie=<filename>  "
-        "format=<sample format> "
-        "rate=<sample rate> "
-        "channels=<number of channels>");
-
-#define DEFAULT_SINK_NAME "roc_out"
 
 struct userdata {
     pa_core *core;
     pa_module *module;
     pa_sink *sink;
 
+    pa_thread *thread;
     pa_thread_mq thread_mq;
     pa_rtpoll *rtpoll;
-    pa_rtpoll_item *rtpoll_item;
-    pa_thread *thread;
 
     pa_memchunk memchunk;
 
-    void *write_data;
-    size_t write_length, write_index;
-
-    void *read_data;
-    size_t read_length, read_index;
-
-    enum {
-        STATE_AUTH,
-        STATE_LATENCY,
-        STATE_PREPARE,
-        STATE_RUNNING,
-        STATE_DEAD
-    } state;
-
-    pa_usec_t latency;
-
-    int32_t rate;
-
-    pa_smoother *smoother;
-    int fd;
-
-    int64_t offset;
-
-    pa_iochannel *io;
-    pa_socket_client *client;
-
-    size_t block_size;
+    pa_usec_t block_usec;
+    pa_usec_t timestamp;
 };
 
 static const char* const valid_modargs[] = {
     "sink_name",
     "sink_properties",
-    "server",
-    "cookie",
     "format",
     "rate",
     "channels",
+    "channel_map",
     NULL
 };
 
-enum {
-    SINK_MESSAGE_PASS_SOCKET = PA_SINK_MESSAGE_MAX
-};
+static int sink_process_msg(
+        pa_msgobject *o,
+        int code,
+        void *data,
+        int64_t offset,
+        pa_memchunk *chunk) {
 
-#include <stdio.h>
-
-void roc_msg( const int code )
-{
-    printf( "roc_msg: %d\n", code );
-}
-
-static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SINK(o)->userdata;
 
-    roc_msg( code );
-
     switch (code) {
-
         case PA_SINK_MESSAGE_SET_STATE:
 
-            switch ((pa_sink_state_t) PA_PTR_TO_UINT(data)) {
-
-                case PA_SINK_SUSPENDED:
-                    pa_assert(PA_SINK_IS_OPENED(u->sink->thread_info.state));
-
-                    pa_smoother_pause(u->smoother, pa_rtclock_now());
-                    break;
-
-                case PA_SINK_IDLE:
-                case PA_SINK_RUNNING:
-
-                    if (u->sink->thread_info.state == PA_SINK_SUSPENDED)
-                        pa_smoother_resume(u->smoother, pa_rtclock_now(), TRUE);
-
-                    break;
-
-                case PA_SINK_UNLINKED:
-                case PA_SINK_INIT:
-                case PA_SINK_INVALID_STATE:
-                    ;
-            }
+            if (PA_PTR_TO_UINT(data) == PA_SINK_RUNNING)
+                u->timestamp = pa_rtclock_now();
 
             break;
 
         case PA_SINK_MESSAGE_GET_LATENCY: {
-            pa_usec_t w, r;
+            pa_usec_t now;
 
-            r = pa_smoother_get(u->smoother, pa_rtclock_now());
-            w = pa_bytes_to_usec((uint64_t) u->offset + u->memchunk.length, &u->sink->sample_spec);
-
-            *((pa_usec_t*) data) = w > r ? w - r : 0;
-            return 0;
-        }
-
-        case SINK_MESSAGE_PASS_SOCKET: {
-            struct pollfd *pollfd;
-
-            pa_assert(!u->rtpoll_item);
-
-            u->rtpoll_item = pa_rtpoll_item_new(u->rtpoll, PA_RTPOLL_NEVER, 1);
-            pollfd = pa_rtpoll_item_get_pollfd(u->rtpoll_item, NULL);
-            pollfd->fd = u->fd;
-            pollfd->events = pollfd->revents = 0;
+            now = pa_rtclock_now();
+            *((pa_usec_t*) data) = u->timestamp > now ? u->timestamp - now : 0ULL;
 
             return 0;
         }
@@ -206,21 +116,114 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     return pa_sink_process_msg(o, code, data, offset, chunk);
 }
 
+static void sink_update_requested_latency_cb(pa_sink *s) {
+    struct userdata *u;
+    size_t nbytes;
+
+    pa_sink_assert_ref(s);
+    pa_assert_se(u = s->userdata);
+
+    u->block_usec = pa_sink_get_requested_latency_within_thread(s);
+
+    if (u->block_usec == (pa_usec_t) -1)
+        u->block_usec = s->thread_info.max_latency;
+
+    nbytes = pa_usec_to_bytes(u->block_usec, &s->sample_spec);
+    pa_sink_set_max_rewind_within_thread(s, nbytes);
+    pa_sink_set_max_request_within_thread(s, nbytes);
+}
+
+static void process_rewind(struct userdata *u, pa_usec_t now) {
+    size_t rewind_nbytes, in_buffer;
+    pa_usec_t delay;
+
+    pa_assert(u);
+
+    rewind_nbytes = u->sink->thread_info.rewind_nbytes;
+
+    if (!PA_SINK_IS_OPENED(u->sink->thread_info.state) || rewind_nbytes <= 0)
+        goto do_nothing;
+
+    pa_log_debug("Requested to rewind %lu bytes.", (unsigned long) rewind_nbytes);
+
+    if (u->timestamp <= now)
+        goto do_nothing;
+
+    delay = u->timestamp - now;
+    in_buffer = pa_usec_to_bytes(delay, &u->sink->sample_spec);
+
+    if (in_buffer <= 0)
+        goto do_nothing;
+
+    if (rewind_nbytes > in_buffer)
+        rewind_nbytes = in_buffer;
+
+    pa_sink_process_rewind(u->sink, rewind_nbytes);
+    u->timestamp -= pa_bytes_to_usec(rewind_nbytes, &u->sink->sample_spec);
+
+    pa_log_debug("Rewound %lu bytes.", (unsigned long) rewind_nbytes);
+    return;
+
+do_nothing:
+
+    pa_sink_process_rewind(u->sink, 0);
+}
+
+void roc_proc_render()
+{
+    size_t i = 0 ;
+}
+
+uint8_t buff[2048];
+size_t buff_len = 0;
+
+static void process_render(struct userdata *u, pa_usec_t now) {
+    size_t ate = 0;
+
+    pa_assert(u);
+
+
+    /* This is the configured latency. Sink inputs connected to us
+    might not have a single frame more than the maxrequest value
+    queued. Hence: at maximum read this many bytes from the sink
+    inputs. */
+
+    while (u->timestamp < now + u->block_usec) {
+        void *p ;
+        size_t l ;
+        pa_memchunk chunk ;
+        roc_proc_render();
+
+        pa_sink_render(u->sink, u->sink->thread_info.max_request, &chunk);
+        p = pa_memblock_acquire(chunk.memblock);
+
+        // l = pa_write(u->fd, (uint8_t*) p + chunk.index, chunk.length, &write_type);
+        l = chunk.length > sizeof(buff) ? sizeof(buff) : chunk.length ;
+        memcpy( buff, (uint8_t*) p + chunk.index, l );
+        buff_len = l ;
+
+        pa_memblock_release(chunk.memblock);
+
+        chunk.index += (size_t) l;
+        chunk.length -= (size_t) l;
+
+        ate += chunk.length;
+        pa_memblock_unref(chunk.memblock);
+
+    /*         pa_log_debug("Ate %lu bytes.", (unsigned long) chunk.length); */
+        u->timestamp += pa_bytes_to_usec( chunk.length, &u->sink->sample_spec );
+    }
+/*     pa_log_debug("Ate in sum %lu bytes (of %lu)", (unsigned long) ate, (unsigned long) nbytes); */
+}
+
+
 void roc_thread()
 {
     size_t i = 0 ;
-    i++ ;
-}
-
-void roc_send_samples()
-{
-    size_t i = 0 ;
-    i++ ;
 }
 
 static void thread_func(void *userdata) {
     struct userdata *u = userdata;
-    int write_type = 0;
 
     pa_assert(u);
 
@@ -228,126 +231,36 @@ static void thread_func(void *userdata) {
 
     pa_thread_mq_install(&u->thread_mq);
 
-    pa_smoother_set_time_offset(u->smoother, pa_rtclock_now());
+    u->timestamp = pa_rtclock_now();
 
     for (;;) {
+        pa_usec_t now = 0;
         int ret;
 
         roc_thread();
 
+
+        if (PA_SINK_IS_OPENED(u->sink->thread_info.state))
+            now = pa_rtclock_now();
+
         if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
-            pa_sink_process_rewind(u->sink, 0);
+            process_rewind(u, now);
 
-        if (u->rtpoll_item) {
-            struct pollfd *pollfd;
-            pollfd = pa_rtpoll_item_get_pollfd(u->rtpoll_item, NULL);
+        /* Render some data and drop it immediately */
+        if (PA_SINK_IS_OPENED(u->sink->thread_info.state)) {
+            if (u->timestamp <= now)
+                process_render(u, now);
 
-            roc_send_samples();
+            pa_rtpoll_set_timer_absolute(u->rtpoll, u->timestamp);
+        } else
+            pa_rtpoll_set_timer_disabled(u->rtpoll);
 
-            /* Render some data and write it to the fifo */
-            if (PA_SINK_IS_OPENED(u->sink->thread_info.state) && pollfd->revents) {
-                pa_usec_t usec;
-                int64_t n;
-
-                for (;;) {
-                    ssize_t l;
-                    void *p;
-
-                    if (u->memchunk.length <= 0)
-                        pa_sink_render(u->sink, u->block_size, &u->memchunk);
-
-                    pa_assert(u->memchunk.length > 0);
-
-                    p = pa_memblock_acquire(u->memchunk.memblock);
-                    roc_send_samples();
-                    l = u->memchunk.length ;
-                    pa_memblock_release(u->memchunk.memblock);
-
-                    pa_assert(l != 0);
-
-                    if (l < 0) {
-
-                        if (errno == EINTR)
-                            continue;
-                        else if (errno == EAGAIN) {
-
-                            /* OK, we filled all socket buffers up
-                             * now. */
-                            goto filled_up;
-
-                        } else {
-                            pa_log("Failed to write data to FIFO: %s", pa_cstrerror(errno));
-                            goto fail;
-                        }
-
-                    } else {
-                        u->offset += l;
-
-                        u->memchunk.index += (size_t) l;
-                        u->memchunk.length -= (size_t) l;
-
-                        if (u->memchunk.length <= 0) {
-                            pa_memblock_unref(u->memchunk.memblock);
-                            pa_memchunk_reset(&u->memchunk);
-                        }
-
-                        pollfd->revents = 0;
-
-                        if (u->memchunk.length > 0)
-
-                            /* OK, we wrote less that we asked for,
-                             * hence we can assume that the socket
-                             * buffers are full now */
-                            goto filled_up;
-                    }
-                }
-
-            filled_up:
-
-                /* At this spot we know that the socket buffers are
-                 * fully filled up. This is the best time to estimate
-                 * the playback position of the server */
-
-                n = u->offset;
-
-#ifdef SIOCOUTQ
-                {
-                    int l;
-                    if (ioctl(u->fd, SIOCOUTQ, &l) >= 0 && l > 0)
-                        n -= l;
-                }
-#endif
-
-                usec = pa_bytes_to_usec((uint64_t) n, &u->sink->sample_spec);
-
-                if (usec > u->latency)
-                    usec -= u->latency;
-                else
-                    usec = 0;
-
-                pa_smoother_put(u->smoother, pa_rtclock_now(), usec);
-            }
-
-            /* Hmm, nothing to do. Let's sleep */
-            pollfd->events = (short) (PA_SINK_IS_OPENED(u->sink->thread_info.state) ? POLLOUT : 0);
-        }
-
+        /* Hmm, nothing to do. Let's sleep */
         if ((ret = pa_rtpoll_run(u->rtpoll, TRUE)) < 0)
             goto fail;
 
         if (ret == 0)
             goto finish;
-
-        if (u->rtpoll_item) {
-            struct pollfd* pollfd;
-
-            pollfd = pa_rtpoll_item_get_pollfd(u->rtpoll_item, NULL);
-
-            if (pollfd->revents & ~POLLOUT) {
-                pa_log("FIFO shutdown.");
-                goto fail;
-            }
-        }
     }
 
 fail:
@@ -360,82 +273,42 @@ finish:
     pa_log_debug("Thread shutting down");
 }
 
-void roc_sink_hw()
-{
-    size_t i = 0 ;
-    i++ ;
-}
-
 int pa__init(pa_module*m) {
     struct userdata *u = NULL;
     pa_sample_spec ss;
+    pa_channel_map map;
     pa_modargs *ma = NULL;
-    const char *roc_rec_adress;
-    uint32_t key;
     pa_sink_new_data data;
+    size_t nbytes;
 
     pa_assert(m);
-    roc_sink_hw();
 
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-        pa_log("failed to parse module arguments");
+        pa_log("Failed to parse module arguments.");
         goto fail;
     }
 
     ss = m->core->default_sample_spec;
-    if (pa_modargs_get_sample_spec(ma, &ss) < 0) {
-        pa_log("invalid sample format specification");
+    map = m->core->default_channel_map;
+    if (pa_modargs_get_sample_spec_and_channel_map(ma, &ss, &map, PA_CHANNEL_MAP_DEFAULT) < 0) {
+        pa_log("Invalid sample format specification or channel map");
         goto fail;
     }
 
-    if ((ss.format != PA_SAMPLE_U8 && ss.format != PA_SAMPLE_S16NE) ||
-        (ss.channels > 2)) {
-        pa_log("esound sample type support is limited to mono/stereo and U8 or S16NE sample data");
-        goto fail;
-    }
-
-    u = pa_xnew0(struct userdata, 1);
+    m->userdata = u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->module = m;
-    m->userdata = u;
-    u->fd = -1;
-    u->smoother = pa_smoother_new(
-            PA_USEC_PER_SEC,
-            PA_USEC_PER_SEC*2,
-            TRUE,
-            TRUE,
-            10,
-            0,
-            FALSE);
-    pa_memchunk_reset(&u->memchunk);
-    u->offset = 0;
-
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
-    u->rtpoll_item = NULL;
-
-    u->rate = (int32_t) ss.rate;
-    u->block_size = pa_usec_to_bytes(PA_USEC_PER_SEC/20, &ss);
-
-    u->read_data = u->write_data = NULL;
-    u->read_index = u->write_index = u->read_length = u->write_length = 0;
-
-    u->state = STATE_AUTH;
-    u->latency = 0;
-
-    // if (!(roc_rec_adress = getenv("roc_rec_adress")))
-    //     roc_rec_adress = ESD_UNIX_SOCKET_NAME;
-
-    roc_rec_adress = pa_modargs_get_value(ma, "server", roc_rec_adress);
 
     pa_sink_new_data_init(&data);
     data.driver = __FILE__;
     data.module = m;
     pa_sink_new_data_set_name(&data, pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));
     pa_sink_new_data_set_sample_spec(&data, &ss);
-    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_STRING, roc_rec_adress);
-    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, "roc");
-    pa_proplist_setf(data.proplist, PA_PROP_DEVICE_DESCRIPTION, "Roc Output on %s", roc_rec_adress);
+    pa_sink_new_data_set_channel_map(&data, &map);
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_DESCRIPTION, _("Roc Outptu"));
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "abstract");
 
     if (pa_modargs_get_proplist(ma, "sink_properties", data.proplist, PA_UPDATE_REPLACE) < 0) {
         pa_log("Invalid properties");
@@ -443,48 +316,35 @@ int pa__init(pa_module*m) {
         goto fail;
     }
 
-    u->sink = pa_sink_new(m->core, &data, PA_SINK_LATENCY|PA_SINK_NETWORK);
+    u->sink = pa_sink_new(m->core, &data, PA_SINK_LATENCY|PA_SINK_DYNAMIC_LATENCY);
     pa_sink_new_data_done(&data);
 
     if (!u->sink) {
-        pa_log("Failed to create sink.");
+        pa_log("Failed to create sink object.");
         goto fail;
     }
 
     u->sink->parent.process_msg = sink_process_msg;
+    u->sink->update_requested_latency = sink_update_requested_latency_cb;
     u->sink->userdata = u;
 
     pa_sink_set_asyncmsgq(u->sink, u->thread_mq.inq);
     pa_sink_set_rtpoll(u->sink, u->rtpoll);
 
-    // if (!(u->client = pa_socket_client_new_string(u->core->mainloop, TRUE, roc_rec_adress, ESD_DEFAULT_PORT))) {
-    //     pa_log("Failed to connect to server.");
-    //     goto fail;
-    // }
+    u->block_usec = BLOCK_USEC;
+    nbytes = pa_usec_to_bytes(u->block_usec, &u->sink->sample_spec);
+    pa_sink_set_max_rewind(u->sink, nbytes);
+    pa_sink_set_max_request(u->sink, nbytes);
 
-    // pa_socket_client_set_callback(u->client, on_connection, u);
-
-    // /* Prepare the initial request */
-    // u->write_data = pa_xmalloc(u->write_length = ESD_KEY_LEN + sizeof(int32_t));
-    // if (pa_authkey_load_auto(pa_modargs_get_value(ma, "cookie", ".esd_auth"), TRUE, u->write_data, ESD_KEY_LEN) < 0) {
-    //     pa_log("Failed to load cookie");
-    //     goto fail;
-    // }
-
-    // key = ESD_ENDIAN_KEY;
-    // memcpy((uint8_t*) u->write_data + ESD_KEY_LEN, &key, sizeof(key));
-
-    // /* Reserve space for the response */
-    // u->read_data = pa_xmalloc(u->read_length = sizeof(int32_t));
-
-    if (!(u->thread = pa_thread_new("roc-sink", thread_func, u))) {
+    if (!(u->thread = pa_thread_new("null-sink", thread_func, u))) {
         pa_log("Failed to create thread.");
         goto fail;
     }
 
+    pa_sink_set_latency_range(u->sink, 0, BLOCK_USEC);
+
     pa_sink_put(u->sink);
 
-    pa_log_warn("ROC HW!\n");
     pa_modargs_free(ma);
 
     return 0;
@@ -509,6 +369,7 @@ int pa__get_n_used(pa_module *m) {
 
 void pa__done(pa_module*m) {
     struct userdata *u;
+
     pa_assert(m);
 
     if (!(u = m->userdata))
@@ -527,29 +388,8 @@ void pa__done(pa_module*m) {
     if (u->sink)
         pa_sink_unref(u->sink);
 
-    if (u->io)
-        pa_iochannel_free(u->io);
-
-    if (u->rtpoll_item)
-        pa_rtpoll_item_free(u->rtpoll_item);
-
     if (u->rtpoll)
         pa_rtpoll_free(u->rtpoll);
-
-    if (u->memchunk.memblock)
-        pa_memblock_unref(u->memchunk.memblock);
-
-    if (u->client)
-        pa_socket_client_unref(u->client);
-
-    pa_xfree(u->read_data);
-    pa_xfree(u->write_data);
-
-    if (u->smoother)
-        pa_smoother_free(u->smoother);
-
-    if (u->fd >= 0)
-        pa_close(u->fd);
 
     pa_xfree(u);
 }
