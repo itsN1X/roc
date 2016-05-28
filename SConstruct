@@ -474,6 +474,7 @@ if compiler in ['gcc', 'clang']:
     env.Append(CXXFLAGS=[
         '-std=c++98',
         '-fno-exceptions',
+        '-fPIC',
     ])
     env.Append(LINKFLAGS=[
         '-pthread',
