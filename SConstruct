@@ -475,6 +475,7 @@ if compiler in ['gcc', 'clang']:
         '-std=c++98',
         '-fno-exceptions',
         '-fPIC',
+        '-g',
     ])
     env.Append(LINKFLAGS=[
         '-pthread',
