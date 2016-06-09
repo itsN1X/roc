@@ -29,12 +29,13 @@ struct Roc_Handler
     audio::SampleBufferQueue sample_queue;
     rtp::Composer rtp_composer_;
 
-    sndio::Reader reader;
-
     audio::ISampleBufferPtr buffer_;
     size_t buffer_pos_;
     size_t buffer_size_;
     size_t n_bufs_;
+
+    netio::Transceiver *trx;
+    pipeline::Client *client ;
 };
 
 void roc_initialize(const unsigned int verbosity)
@@ -51,7 +52,7 @@ int roc_initialize_transmitter(Roc_Handler **handler,
         return ROC_INVALID;
     }
 
-    *handler = (Roc_Handler*)malloc( sizeof(Roc_Handler) );
+    *handler = new Roc_Handler();
     if (!*handler) {
         return 1;
     }
@@ -66,21 +67,20 @@ int roc_initialize_transmitter(Roc_Handler **handler,
 
     (*handler)->buffer_ = NULL;
 
-    netio::Transceiver trx;
-    if (!trx.add_udp_sender(src_addr)) {
+    (*handler)->trx = new netio::Transceiver();
+    if (!(*handler)->trx->add_udp_sender(src_addr)) {
         roc_log(LOG_ERROR, "can't register udp sender: %s",
                 datagram::address_to_str(src_addr).c_str());
         return 1;
     }
 
-    pipeline::Client client((*handler)->sample_queue, trx.udp_sender(), trx.udp_composer(),
+    (*handler)->client = new pipeline::Client((*handler)->sample_queue, (*handler)->trx->udp_sender(), (*handler)->trx->udp_composer(),
                             (*handler)->rtp_composer_, (*handler)->config);
 
-    client.set_sender(src_addr);
+    (*handler)->client->set_sender(src_addr);
 
-    trx.start();
-
-    client.start();
+    (*handler)->trx->start();
+    (*handler)->client->start();
 
     return ROC_VALID ;
 }
@@ -139,6 +139,12 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
 void roc_close( Roc_Handler *handler )
 {
     (void)handler ;
+
+    // XXX:
+    handler->client->join();
+    handler->trx->join();
+    delete handler->trx;
+    delete handler->client;
     free( handler );
 }
 
