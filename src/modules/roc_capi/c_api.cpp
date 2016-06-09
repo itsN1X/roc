@@ -31,7 +31,6 @@ struct Roc_Handler
 
     audio::ISampleBufferPtr buffer_;
     size_t buffer_pos_;
-    size_t buffer_size_;
     size_t n_bufs_;
 
     netio::Transceiver *trx;
@@ -111,7 +110,7 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
 
     packet::sample_t* samples = handler->buffer_->data();
     uint32_t *psample = (uint32_t*)data ;
-    for (; handler->buffer_pos_ < handler->buffer_size_; handler->buffer_pos_++) {
+    for (; handler->buffer_pos_ < handler->buffer_->size(); handler->buffer_pos_++) {
         if (data_len == 0) {
             break;
         }
@@ -124,7 +123,7 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
         }
     }
 
-    if (handler->buffer_pos_ == handler->buffer_size_) {
+    if (handler->buffer_pos_ == handler->buffer_->size()) {
         handler->sample_queue.write(*handler->buffer_);
 
         handler->buffer_ = NULL;
