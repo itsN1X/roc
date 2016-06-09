@@ -21,7 +21,12 @@
 
 #include "roc_capi/c_api.h"
 
+#include <stdio.h>
+FILE *flog = NULL ;
+
 using namespace roc ;
+
+void loger(LogLevel level, const char* module, const char* message);
 
 struct Roc_Handler
 {
@@ -39,14 +44,17 @@ struct Roc_Handler
 
 void roc_initialize(const unsigned int verbosity)
 {
-    core::set_log_level(LogLevel(LOG_ERROR + verbosity));
+    flog = fopen( "/tmp/roc.log", "wa" );
+    core::set_log_handler( loger );
+    core::set_log_level(LogLevel( LOG_FLOOD ));
 }
 
 int roc_initialize_transmitter(Roc_Handler **handler,
          const char *destination_adress, uint32_t options)
 {
     datagram::Address src_addr;
-    if (!netio::parse_address(destination_adress, src_addr)) {
+    datagram::Address dst_addr;
+    if (!netio::parse_address(destination_adress, dst_addr)) {
         roc_log(LOG_ERROR, "can't parse source address: %s", destination_adress);
         return ROC_INVALID;
     }
@@ -61,7 +69,7 @@ int roc_initialize_transmitter(Roc_Handler **handler,
     }
 
     (*handler)->config = pipeline::ClientConfig();
-    (*handler)->config.options |= pipeline::EnableInterleaving;
+    // (*handler)->config.options |= pipeline::EnableInterleaving;
     (*handler)->config.options |= pipeline::EnableTiming;
 
     (*handler)->buffer_ = NULL;
@@ -77,6 +85,7 @@ int roc_initialize_transmitter(Roc_Handler **handler,
                             (*handler)->rtp_composer_, (*handler)->config);
 
     (*handler)->client->set_sender(src_addr);
+    (*handler)->client->set_receiver(dst_addr);
 
     (*handler)->trx->start();
     (*handler)->client->start();
@@ -139,6 +148,8 @@ void roc_close( Roc_Handler *handler )
 {
     (void)handler ;
 
+    if( flog )
+        fclose( flog );
     // XXX:
     handler->client->join();
     handler->trx->join();
@@ -151,4 +162,18 @@ uint32_t roc_trasnmitter_latency( Roc_Handler *handler )
 {
     (void)handler ;
     return 0 ;
+}
+
+void loger( LogLevel level, const char* module, const char* message)
+{
+    const char slevel[][16] = {
+        "LOG_NONE",
+        "LOG_ERROR",
+        "LOG_DEBUG",
+        "LOG_TRACE",
+        "LOG_FLOOD"
+    };
+    if( !flog )
+        return ;
+    fprintf( flog, "[%s]: %s: %s\n", slevel[level], module, message );
 }
