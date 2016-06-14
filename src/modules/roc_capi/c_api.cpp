@@ -27,6 +27,7 @@ FILE *flog = NULL ;
 using namespace roc ;
 
 void loger(LogLevel level, const char* module, const char* message);
+static size_t roc_send_packet( Roc_Handler *handler, void *data, const size_t data_len );
 
 struct Roc_Handler
 {
@@ -95,6 +96,18 @@ int roc_initialize_transmitter(Roc_Handler **handler,
 
 size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
 {
+    uint8_t *p = (uint8_t*)data;
+    size_t total_sent_len = 0;
+    while(total_sent_len < data_len){
+        total_sent_len += roc_send_packet( handler,
+                (uint8_t*)data + total_sent_len, data_len - total_sent_len );
+    }
+    return total_sent_len;
+}
+
+size_t roc_send_packet( Roc_Handler *handler, void *data, const size_t data_len )
+{
+    size_t tx_len = 0 ; // Transmitted bytes.
     audio::ISampleBufferComposer&  composer = audio::default_buffer_composer();
     const size_t buffer_size = handler->config.samples_per_packet / 2
                         * packet::num_channels(handler->config.channels);
@@ -118,17 +131,17 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
     }
 
     packet::sample_t* samples = handler->buffer_->data();
-    uint32_t *psample = (uint32_t*)data ;
+    int16_t *psample = (int16_t*)data ;
     for (; handler->buffer_pos_ < handler->buffer_->size(); handler->buffer_pos_++) {
-        if (data_len == 0) {
+        if (tx_len == data_len) {
             break;
         }
         samples[handler->buffer_pos_] = (float)(int16_t)(*psample & 0xFFFF);
-        if(data_len >= sizeof(*psample)) {
-            data_len -= sizeof(*psample);
+        if((data_len - tx_len) >= sizeof(*psample)) {
+            tx_len += sizeof(*psample);
             psample++;
         } else {
-            data_len = 0;
+            tx_len = data_len;
         }
     }
 
@@ -141,7 +154,7 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
         handler->n_bufs_++;
     }
 
-    return 0 ;
+    return tx_len ;
 }
 
 void roc_close( Roc_Handler *handler )
