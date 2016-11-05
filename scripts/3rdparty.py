@@ -95,7 +95,7 @@ if name == 'uv':
             'libuv-%s' % ver)
     os.chdir('libuv-%s' % ver)
     execute('./autogen.sh', logfile)
-    execute('./configure --enable-static --target=%s' % toolchain, logfile)
+    execute('./configure --enable-static --with-pic --target=%s' % toolchain, logfile)
     execute('make -j', logfile)
     install('include', os.path.join(workdir, fullname, 'include'))
     install('.libs/libuv.a', os.path.join(workdir, fullname, 'lib'))
@@ -112,6 +112,7 @@ elif name == 'openfec':
     execute('cmake .. ' + ' '.join([
         '-DCMAKE_SYSTEM_NAME=%s' % toolchain,
         '-DCMAKE_BUILD_TYPE=Release',
+        '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
         '-DDEBUG:STRING=OFF', # disable debug logs
         ]), logfile)
     execute('make -j', logfile)
