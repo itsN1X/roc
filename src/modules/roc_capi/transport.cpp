@@ -7,7 +7,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "transport.h"
+#include "roc_capi/transport.h"
 
 #include "roc_core/log.h"
 #include "roc_core/scoped_ptr.h"
