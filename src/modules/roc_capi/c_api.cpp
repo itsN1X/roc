@@ -65,13 +65,13 @@ int roc_initialize_transmitter(Roc_Handler **handler,
         return 1;
     }
 
-    if(options & ROC_TRANSMITTER_OPTIONS_FEC){
-        (*handler)->config.options |= pipeline::EnableFEC;
-    }
+    //if(options & ROC_TRANSMITTER_OPTIONS_FEC){
+        //}
 
     (*handler)->config = pipeline::ClientConfig();
     // (*handler)->config.options |= pipeline::EnableInterleaving;
-    (*handler)->config.options |= pipeline::EnableTiming;
+    //(*handler)->config.options |= pipeline::EnableTiming;
+    (*handler)->config.options |= pipeline::EnableFEC;
 
     (*handler)->buffer_ = NULL;
 
@@ -102,16 +102,10 @@ size_t roc_transmit( Roc_Handler *handler, const void *data, size_t data_len )
         size_t sz = roc_send_packet( handler,
                 (uint8_t*)data + total_sent_len, data_len - total_sent_len );
 
-        fprintf(stderr, "[--CAPI--] A: data_len=%lu ret_len=%lu\n",
-                (unsigned long)data_len,
-                (unsigned long)sz);
 
         total_sent_len += sz;
     }
 
-        fprintf(stderr, "[--CAPI--] B: data_len=%lu total_len=%lu\n",
-                (unsigned long)data_len,
-                (unsigned long)total_sent_len);
 
     return total_sent_len;
 }
@@ -142,7 +136,7 @@ size_t roc_send_packet( Roc_Handler *handler, void *data, const size_t data_len 
     }
 
     packet::sample_t* samples = handler->buffer_->data();
-    int16_t *psample = (int16_t*)data ;
+    float *psample = (float*)data ;
     for (;;) {
         if (handler->buffer_pos_ == handler->buffer_->size()) {
             break;
@@ -150,7 +144,7 @@ size_t roc_send_packet( Roc_Handler *handler, void *data, const size_t data_len 
         if (tx_len + sizeof(int16_t) > data_len) {
             break;
         }
-        samples[handler->buffer_pos_] = float(*psample) / float(1 << 15);
+        samples[handler->buffer_pos_] = float(*psample);// / float(1 << 15);
         handler->buffer_pos_++;
         psample++;
         tx_len += sizeof(*psample);

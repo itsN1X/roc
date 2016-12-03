@@ -40,7 +40,7 @@ extern "C" {
     //! work. For example: 
     //!   - length of the source packet on loading;
     //!   - whole receivers latency which is available on SDP link.
-    //! @ret Returns the sum in microseconds. It doesn't indicate error.
+    //! @returns Returns the sum in microseconds. It doesn't indicate error.
     uint32_t roc_trasnmitter_latency( Roc_Handler *handler );
 
 #ifdef __cplusplus
