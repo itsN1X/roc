@@ -104,7 +104,9 @@ size_t roc_transport_send_packet(
 {
     audio::ISampleBufferComposer& composer = audio::default_buffer_composer();
 
-    const size_t buffer_size = transport->config.samples_per_packet;
+    const size_t num_ch = 2;
+
+    const size_t buffer_size = ROC_CONFIG_DEFAULT_SERVER_TICK_SAMPLES * num_ch;
 
     if (!transport->buffer) {
         if (!(transport->buffer = composer.compose())) {
