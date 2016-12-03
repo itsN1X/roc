@@ -9,8 +9,8 @@
 
 //! @brief C API.
 
-#ifndef ROC_H_
-#define ROC_H_
+#ifndef ROC_TRANSPORT_H_
+#define ROC_TRANSPORT_H_
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -18,8 +18,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-void roc_log_set_level(const unsigned int verbosity);
 
 typedef struct roc_transport roc_transport;
 
@@ -42,4 +40,4 @@ uint32_t roc_transport_get_latency(roc_transport *transport);
 }
 #endif
 
-#endif // ROC_H_
+#endif // ROC_TRANSPORT_H_
