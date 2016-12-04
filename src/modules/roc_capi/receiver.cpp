@@ -103,6 +103,6 @@ ssize_t roc_receiver_read(roc_receiver *receiver, float *samples, const size_t n
         received_num += cur_buff_num;
     }
 
-    return received_num;
+    return (ssize_t)received_num;
 }
 
