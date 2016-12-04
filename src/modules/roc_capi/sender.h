@@ -9,8 +9,8 @@
 
 //! @brief C API.
 
-#ifndef ROC_TRANSPORT_H_
-#define ROC_TRANSPORT_H_
+#ifndef ROC_SENDER_H_
+#define ROC_SENDER_H_
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -19,13 +19,13 @@
 extern "C" {
 #endif
 
-typedef struct roc_transport roc_transport;
+typedef struct roc_sender roc_sender;
 
-roc_transport* roc_transport_open(const char *destination_adress);
+roc_sender* roc_sender_open(const char *destination_adress);
 
-size_t roc_transport_send(roc_transport *transport, const float *samples, size_t n_samples);
+size_t roc_sender_write(roc_sender *sender, const float *samples, size_t n_samples);
 
-void roc_transport_close(roc_transport *transport);
+void roc_sender_close(roc_sender *sender);
 
 //! Returns sum of all knnown latencies in microseconds.
 //!
@@ -34,10 +34,10 @@ void roc_transport_close(roc_transport *transport);
 //!   - length of the source packet on loading;
 //!   - whole receivers latency which is available on SDP link.
 //! @returns Returns the sum in microseconds. It doesn't indicate error.
-uint32_t roc_transport_get_latency(roc_transport *transport);
+uint32_t roc_sender_get_latency(roc_sender *sender);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // ROC_TRANSPORT_H_
+#endif // ROC_SENDER_H_
