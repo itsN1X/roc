@@ -55,7 +55,7 @@ roc_receiver* roc_receiver_open(const char *address)
     }
 
     receiver->config.options = 0;
-    receiver->config.options |= pipeline::EnableFEC | 
+    receiver->config.options |= pipeline::EnableFEC |
                             pipeline::EnableResampling | pipeline::EnableBeep;
 
     if (!receiver->trx.add_udp_receiver(addr, receiver->dgm_queue)) {
@@ -75,8 +75,6 @@ roc_receiver* roc_receiver_open(const char *address)
 
 void roc_receiver_close(roc_receiver *receiver)
 {
-    if(!receiver)
-        return;
     delete receiver;
 }
 
@@ -84,8 +82,8 @@ ssize_t roc_receiver_read(roc_receiver *receiver, float *samples, const size_t n
 {
     size_t received_num;
     for(received_num = 0; received_num < n_samples;){
-        if(receiver->buffer_cntr == 0){
-            audio::ISampleBufferReader& input = receiver->sample_queue ;    
+        if(!receiver->buffer){
+            audio::ISampleBufferReader& input = receiver->sample_queue ;
             receiver->buffer = input.read();
 
             if (!receiver->buffer) {
@@ -101,8 +99,13 @@ ssize_t roc_receiver_read(roc_receiver *receiver, float *samples, const size_t n
                             receiver->buffer.data()+receiver->buffer_cntr,
                             cur_buff_num*sizeof(roc::packet::sample_t));
         received_num += cur_buff_num;
+        receiver->buffer_cntr += cur_buff_num;
+
+        if (receiver->buffer_cntr == receiver->buffer.size()) {
+            receiver->buffer_cntr = 0;
+            receiver->buffer = audio::ISampleBufferConstSlice();
+        }
     }
 
     return (ssize_t)received_num;
 }
-
