@@ -18,18 +18,18 @@
 namespace roc {
 namespace core {
 
-//! Get current timestamp in milliseconds.
-uint64_t timestamp_ms();
+//! Get current timestamp in microseconds.
+uint64_t timestamp_us();
 
-//! Sleep until specified absolute time point has been reached.
+//! Sleep until the specified absolute time point has been reached.
 //! @remarks
-//!  @p timestamp specifies time point in milleseconds.
-void sleep_until_ms(uint64_t timestamp);
+//!  @p timestamp specifies time point in microseconds.
+void sleep_until_us(uint64_t timestamp);
 
-//! Sleep specified amount of time.
+//! Sleep the specified amount of time.
 //! @remarks
-//!  @p timestamp specifies number of milleseconds to sleep.
-void sleep_for_ms(uint64_t time);
+//!  @p timestamp specifies number of microseconds to sleep.
+void sleep_for_us(uint64_t time);
 
 } // namespace core
 } // namespace roc

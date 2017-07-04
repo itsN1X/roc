@@ -9,9 +9,9 @@
 
 #include <stdlib.h>
 
+#include "roc_core/mutex.h"
 #include "roc_core/panic.h"
 #include "roc_core/random.h"
-#include "roc_core/spin_mutex.h"
 #include "roc_core/time.h"
 
 namespace roc {
@@ -19,7 +19,7 @@ namespace core {
 
 namespace {
 
-SpinMutex rand_mutex;
+Mutex rand_mutex;
 
 bool rand_init_done = false;
 
@@ -37,10 +37,10 @@ void random_init(uint64_t seed_48) {
 // Insecure, but (hopefully?) uniform and thread-safe implementation.
 // See arc4random_uniform() from OpenBSD.
 unsigned random(unsigned from, unsigned to) {
-    SpinMutex::Lock lock(rand_mutex);
+    Mutex::Lock lock(rand_mutex);
 
     if (!rand_init_done) {
-        random_init(timestamp_ms());
+        random_init(timestamp_us());
     }
 
     roc_panic_if_not(from <= to);

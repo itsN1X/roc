@@ -17,19 +17,19 @@
 namespace roc {
 namespace core {
 
-uint64_t timestamp_ms() {
+uint64_t timestamp_us() {
     timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
         roc_panic("clock_gettime(CLOCK_MONOTONIC): %s", errno_to_str().c_str());
     }
 
-    return uint64_t(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+    return uint64_t(ts.tv_sec) * 1000000 + uint64_t(ts.tv_nsec) / 1000;
 }
 
-void sleep_until_ms(uint64_t ms) {
-    timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = ms % 1000 * 1000000;
+void sleep_until_us(uint64_t us) {
+    timespec ts = {};
+    ts.tv_sec = us / 1000000;
+    ts.tv_nsec = us % 1000000 * 1000;
 
     while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL) == -1) {
         if (errno != EINTR) {
@@ -38,10 +38,10 @@ void sleep_until_ms(uint64_t ms) {
     }
 }
 
-void sleep_for_ms(uint64_t ms) {
-    timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = ms % 1000 * 1000000;
+void sleep_for_us(uint64_t us) {
+    timespec ts = {};
+    ts.tv_sec = us / 1000000;
+    ts.tv_nsec = us % 1000000 * 1000;
 
     while (clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, NULL) == -1) {
         if (errno != EINTR) {
