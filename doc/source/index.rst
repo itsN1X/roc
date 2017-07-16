@@ -22,6 +22,25 @@ Goals:
    :caption: Contents:
 
    tutorial
+   sende_n_receiver
    api
    design
    examples
+
+Try it
+------
+
+After building (see :ref:`tutorial_build`), tools are instaleld into ``bin/<host>/`` directory.
+
+Example usage:
+
+* Start server listening on all interfaces on UDP port 12345:
+
+	``$ rov-recv -vv :12345``
+
+* Send WAV file to server:
+
+	``$ roc-send -vv -i song.wav <server_ip>:12345``
+
+See :ref:`sende_n_receiver` for usage details.
+
