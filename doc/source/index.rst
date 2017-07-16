@@ -30,7 +30,7 @@ Goals:
 Try it
 ------
 
-After building (see :ref:`tutorial_build`), tools are instaleld into ``bin/<host>/`` directory.
+After building (see file `INSTALL.md <https://github.com/roc-project/roc/wiki/Building-%28native%29>`_), tools are instaleld into ``bin/<host>/`` directory.
 
 Example usage:
 
