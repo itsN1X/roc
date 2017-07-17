@@ -15,7 +15,7 @@ This guide covers building audio transmission into your application. It is suppo
 Example
 -------
 
-As a main concept of Roc is straightforward, let's see the example of transmitting 5 seconds of a sine-wave before any explanation:
+As a main concept of Roc is straightforward, let's see the example of transmitting 100 packets of a sine-wave before any explanation:
 
 .. code-block:: C
 
@@ -27,7 +27,7 @@ As a main concept of Roc is straightforward, let's see the example of transmitti
 	roc_config conf;
 	memset(&conf, 0, sizeof(roc_config));
 	conf.options = 0; // Synchronous variant is a default.
-	conf.FEC_scheme = roc_config::ReedSolomon2m; // Enable Forward Error Correction.
+	conf.FEC_scheme = roc_config::ReedSolomon2m; // Enable Forward Erasure Correction.
 
 	conf.samples_per_packet = packet_sz/2; 	// Each packet consists 320 samples of left channel 
 						// and 320 samples of right channel.
@@ -74,12 +74,16 @@ You can receive that signal by calling roc-recv:
 
 	``$ roc-recv :12345``
 
-Forward Error Correction Codes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+The source code of the example is in roc/examples/sender_sinewave.cpp.
 
-Roc is being designed with an idea of sensible latency minimization in sight. That's why roc transmits audio content in UDP packets and why roc incorporates Forward Error Correction Codes.
+Forward Erasure Correction Codes
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Roc cuts samples flow into blocks and sends several redundant packets along with them so as to recover lost packets. In the example, roc adds 5 redundant packets for every 10 data packets, so that the roc-recv is able to recover 5 data packets at maximum if they get lost or delayed. On the other hand the data speed is increased in 15/10 time.
+Roc is being designed with an idea of sensible latency minimization in sight. That's why roc transmits audio content in UDP packets and why roc incorporates Forward Erasure Correction Codes.
+
+Roc cuts samples flow into blocks and sends several redundant packets along with them so as to recover lost packets. In the example, roc adds 5 redundant packets for every 10 data packets, so that the roc-recv is able to recover 5 data packets at maximum if they get lost or delayed. On the other hand the data speed is increased in 15/10 times.
+
+Roc doesn't make FEC on its own: it uses `OpenFEC <http://openfec.org/>`_ for that purpose. OpenFEC provides two FEC schemes: Reed-Solomon and LDPC, the former one is more suitable for relatively small latency and small data-rates. Though, the roc's interface of block codec allows attaching another implementation with ease.
 
 Sender timing
 ^^^^^^^^^^^^^
@@ -91,5 +95,5 @@ Data format
 
 Roc works with floating-point interleaved PCM samples in native endian ordering. ``roc_sender_write`` and ``roc_receiver_read`` both accept an array of floats with two interleaved channels -- Left-Right-Left-Right-etc.
 
-In future Roc's is going to support other samples format and configurable number of channels.
+In future roc is going to support other samples format and configurable channels set.
 
