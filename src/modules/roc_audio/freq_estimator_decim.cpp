@@ -7,22 +7,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-//! @file roc_audio/freq_estimator_decim10_coeff.h
-//! @brief Frequency estimator coefficients.
+#include "roc_audio/freq_estimator_decim.h"
 
-#ifndef ROC_AUDIO_FREQ_ESTIMATOR_DECIM10_COEFF_H_
-#define ROC_AUDIO_FREQ_ESTIMATOR_DECIM10_COEFF_H_
+const roc::audio::sample_t roc::audio::fe_decim_h_gain = 1.041106363770361f;
 
-#include "roc_audio/freq_estimator_decim10_len.h"
-
-namespace roc {
-namespace audio {
-
-//! Filters gain -- sum(decim_10_h)
-const packet::sample_t decim_10_h_gain = 1.041106363770361f;
-
-//! Impulse response of decimation filter with factor of 10.
-const packet::sample_t decim_10_h[FREQ_EST_DECIM_10_LEN] = {
+const roc::audio::sample_t roc::audio::fe_decim_h[fe_decim_len] = {
     2.171816595e-05f,  0.001551611349f,   0.0005492189666f,  0.0006585246301f,
     0.0007556059863f,  0.0008557052352f,  0.0009566077497f,  0.00105746265f,
     0.001156042097f,   0.001251217443f,   0.001340582385f,   0.001422821078f,
@@ -88,8 +77,3 @@ const packet::sample_t decim_10_h[FREQ_EST_DECIM_10_LEN] = {
     0.00105746265f,    0.0009566077497f,  0.0008557052352f,  0.0007556059863f,
     0.0006585246301f,  0.0005492189666f,  0.001551611349f,   2.171816595e-05f
 };
-
-} // namespace audio
-} // namespace roc
-
-#endif // ROC_AUDIO_FREQ_ESTIMATOR_DECIM10_COEFF_H_

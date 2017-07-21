@@ -10,94 +10,170 @@
 #include <CppUTest/TestHarness.h>
 
 #include "roc_audio/mixer.h"
-
-#include "test_helpers.h"
-#include "test_stream_reader.h"
+#include "roc_core/buffer_pool.h"
+#include "roc_core/heap_allocator.h"
+#include "roc_core/stddefs.h"
 
 namespace roc {
-namespace test {
-
-using namespace audio;
+namespace audio {
 
 namespace {
 
-enum { BufSz = 100, MaxSamples = 1000 };
+enum { BufSz = 100, MaxSz = 1000 };
+
+core::HeapAllocator allocator;
+core::BufferPool<sample_t> buffer_pool(allocator, MaxSz, 1);
+
+class MockReader : public IReader {
+public:
+    MockReader()
+        : pos_(0)
+        , size_(0) {
+    }
+
+    virtual void read(Frame& frame) {
+        CHECK(pos_ + frame.samples.size() <= size_);
+
+        memcpy(frame.samples.data(), samples_ + pos_,
+               frame.samples.size() * sizeof(sample_t));
+
+        pos_ += frame.samples.size();
+    }
+
+    void add(size_t size, sample_t value) {
+        CHECK(size_ + size < MaxSz);
+
+        for (size_t n = 0; n < size; n++) {
+            samples_[size_++] = value;
+        }
+    }
+
+    size_t unread() const {
+        return size_ - pos_;
+    }
+
+private:
+    sample_t samples_[MaxSz];
+    size_t pos_;
+    size_t size_;
+};
 
 } // namespace
 
 TEST_GROUP(mixer) {
-    TestStreamReader<MaxSamples> reader1;
-    TestStreamReader<MaxSamples> reader2;
+    core::Slice<sample_t> new_buffer(size_t sz) {
+        core::Slice<sample_t> buf = new (buffer_pool) core::Buffer<sample_t>(buffer_pool);
+        buf.resize(sz);
+        return buf;
+    }
 
-    Mixer mixer;
+    void expect_output(Mixer& mixer, size_t sz, sample_t value) {
+        Frame frame;
+        frame.samples = new_buffer(sz);
 
-    void expect_output(size_t sz, packet::sample_t value) {
-        read_buffers<MaxSamples>(mixer, 1, sz, value);
+        mixer.read(frame);
+
+        UNSIGNED_LONGS_EQUAL(sz, frame.samples.size());
+
+        for (size_t n = 0; n < sz; n++) {
+            DOUBLES_EQUAL(value, frame.samples.data()[n], 0.0001);
+        }
     }
 };
 
 TEST(mixer, no_readers) {
-    expect_output(BufSz, 0);
+    Mixer mixer(buffer_pool);
+
+    expect_output(mixer, BufSz, 0);
 }
 
 TEST(mixer, one_reader) {
+    MockReader reader1;
+
+    Mixer mixer(buffer_pool);
+
     mixer.add(reader1);
 
-    reader1.add(BufSz, 0.111f);
+    reader1.add(BufSz, 0.11f);
+    expect_output(mixer, BufSz, 0.11f);
 
-    expect_output(BufSz, 0.111f);
+    CHECK(reader1.unread() == 0);
 }
 
 TEST(mixer, two_readers) {
-    mixer.add(reader1);
-    mixer.add(reader2);
+    MockReader reader1;
+    MockReader reader2;
 
-    reader1.add(BufSz, 0.111f);
-    reader2.add(BufSz, 0.222f);
+    Mixer mixer(buffer_pool);
 
-    expect_output(BufSz, 0.333f);
-}
-
-TEST(mixer, remove_reader) {
     mixer.add(reader1);
     mixer.add(reader2);
 
     reader1.add(BufSz, 0.11f);
     reader2.add(BufSz, 0.22f);
-    expect_output(BufSz, 0.33f);
+
+    expect_output(mixer, BufSz, 0.33f);
+
+    CHECK(reader1.unread() == 0);
+    CHECK(reader2.unread() == 0);
+}
+
+TEST(mixer, remove_reader) {
+    MockReader reader1;
+    MockReader reader2;
+
+    Mixer mixer(buffer_pool);
+
+    mixer.add(reader1);
+    mixer.add(reader2);
+
+    reader1.add(BufSz, 0.11f);
+    reader2.add(BufSz, 0.22f);
+    expect_output(mixer, BufSz, 0.33f);
 
     mixer.remove(reader2);
 
     reader1.add(BufSz, 0.44f);
     reader2.add(BufSz, 0.55f);
-    expect_output(BufSz, 0.44f);
+    expect_output(mixer, BufSz, 0.44f);
 
     mixer.remove(reader1);
 
     reader1.add(BufSz, 0.77f);
     reader2.add(BufSz, 0.88f);
-    expect_output(BufSz, 0.0f);
+    expect_output(mixer, BufSz, 0.0f);
+
+    CHECK(reader1.unread() == BufSz);
+    CHECK(reader2.unread() == BufSz * 2);
 }
 
 TEST(mixer, clamp) {
+    MockReader reader1;
+    MockReader reader2;
+
+    Mixer mixer(buffer_pool);
+
     mixer.add(reader1);
     mixer.add(reader2);
 
     reader1.add(BufSz, 0.900f);
     reader2.add(BufSz, 0.101f);
 
-    expect_output(BufSz, 1.0f);
+    expect_output(mixer, BufSz, 1.0f);
 
     reader1.add(BufSz, 0.2f);
     reader2.add(BufSz, 1.1f);
 
-    expect_output(BufSz, 1.0f);
+    expect_output(mixer, BufSz, 1.0f);
 
     reader1.add(BufSz, -0.2f);
     reader2.add(BufSz, -0.81f);
 
-    expect_output(BufSz, -1.0f);
+    expect_output(mixer, BufSz, -1.0f);
+
+    CHECK(reader1.unread() == 0);
+    CHECK(reader2.unread() == 0);
 }
 
-} // namespace test
+} // namespace audio
 } // namespace roc
