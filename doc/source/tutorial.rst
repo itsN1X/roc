@@ -1,21 +1,23 @@
 .. _tutorial:
 
 User guide
-=================
+**********
 
 Roc provides easy-to-use and flexible C API. Overall complexity is hidden behind two methods **write** and **read**.
 
-Besides the fact that Roc is written in C++, it provides API in terms of plain old C in sake of portability and simplicity.
+Besides the fact that roc is written in C++, it provides API in terms of plain old C in sake of portability and simplicity.
 
-This guide covers building audio transmission into your application. It is supposed to show a main concept, so refer to :ref:`api` for detailed description of functions and structures if needed.
+This guide covers building audio transmission into your application. It is supposed to show a main concept, so refer to :ref:`api` for detailed description of functions and structures if need so.
 
 .. _tutorial_build:
 
+Sender
+======
 
 Example
 -------
 
-As a main concept of Roc is straightforward, let's see the example of transmitting 100 packets of a sine-wave before any explanation:
+As a main concept of roc is straightforward, let's see the example of transmitting 100 packets of a sine-wave to **roc-recv** before any explanation:
 
 .. code-block:: C
 
@@ -27,7 +29,7 @@ As a main concept of Roc is straightforward, let's see the example of transmitti
 	roc_config conf;
 	memset(&conf, 0, sizeof(roc_config));
 	conf.options = 0; // Synchronous variant is a default.
-	conf.FEC_scheme = roc_config::ReedSolomon2m; // Enable Forward Erasure Correction.
+	conf.FEC_scheme = roc_config::ReedSolomon2m; // Enable Forward Erasure Correction, it is a default variant though.
 
 	conf.samples_per_packet = packet_sz/2; 	// Each packet consists 320 samples of left channel 
 						// and 320 samples of right channel.
@@ -70,25 +72,33 @@ As a main concept of Roc is straightforward, let's see the example of transmitti
 
 	roc_sender_delete(sndr);
 
-You can receive that signal by calling roc-recv:
+You can receive that signal by calling **roc-recv**:
 
 	``$ roc-recv :12345``
 
-The source code of the example is in roc/examples/sender_sinewave.cpp.
+The source code of the example is in ``roc/examples/sender_sinewave.cpp``.
 
 Forward Erasure Correction Codes
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Roc is being designed with an idea of sensible latency minimization in sight. That's why roc transmits audio content in UDP packets and why roc incorporates Forward Erasure Correction Codes.
 
-Roc cuts samples flow into blocks and sends several redundant packets along with them so as to recover lost packets. In the example, roc adds 5 redundant packets for every 10 data packets, so that the roc-recv is able to recover 5 data packets at maximum if they get lost or delayed. On the other hand the data speed is increased in 15/10 times.
+Roc cuts samples flow into blocks and sends several redundant packets along with them so as to recover lost packets. In the example above, roc adds 5 redundant packets to every 10 data packets, so that the roc-recv is able to recover 5 data packets at maximum if they get lost or delayed. On the other hand the data rate is increased in 15/10 times.
 
-Roc doesn't make FEC on its own: it uses `OpenFEC <http://openfec.org/>`_ for that purpose. OpenFEC provides two FEC schemes: Reed-Solomon and LDPC, the former one is more suitable for relatively small latency and small data-rates. Though, the roc's interface of block codec allows attaching another implementation with ease.
+Roc doesn't make FEC on its own: it uses `OpenFEC <http://openfec.org/>`_ for that purpose. OpenFEC provides two FEC schemes: Reed-Solomon and LDPC, the former one is more suitable for relatively small latency and small data-rates, therefore it is a default option.
+
+Moreover, the roc's interface of block codec allows attaching another implementation with ease. Feel free to integrate great opensource and free implementation of some effective code.
 
 Sender timing
 ^^^^^^^^^^^^^
 
-TODO
+One of the valuable feature of roc is that a receiver (e.g. **roc-recv**) adjusts its sampling frequency to a sampling rate of a sender. That's the reason why a sender must send packets with steady rate. In other words it's forbidden to send an entire .wav file at once. There're many other ways for that.
+
+As packets must be scheduled carefully, roc could do this job for sender. Unless a user turns on ``ROC_API_CONF_DISABLE_TIMING`` option in ``roc_config::options``, ``roc_sender_write`` will block sender's thread until the samples are sent. This variant could be used in e.g. media player, when there's no other source of timing.
+
+Otherwise, ``roc_sender_write`` stores samples in a queue and returns immediately which could be usefull when sender's thread blocks on acquiring the samples, e.g. in `the module for pulseaudio <https://github.com/roc-project/pulseaudio-roc>`_.
+
+The example didn't disable timing because it generates samples online, so it needs to be blocked so as not to oveflow roc's senders queue.
 
 Data format
 ^^^^^^^^^^^

@@ -1,12 +1,12 @@
-.. _sende_n_receiver:
+.. _sender_n_receiver:
 
 roc-send and roc-recv 
-=====================
+*********************
 
 Roc provides two command-line utilities for transmitting audio-content via LAN/WLAN. They're pretty simple but very useful.
 
 roc-send [OPTIONS] ADDRESS
-------------------------------
+==========================
 Sends music content from the file to the ADDRESS.
 
 Available options:
@@ -90,7 +90,7 @@ Capture sound from specific pulseaudio device:
 	``$ roc-send -vv 192.168.0.3:12345 -t pulseaudio -i <device>``
 
 roc-recv [OPTIONS] ADDRESS
---------------------------
+==========================
 
 Repairs lost packets, adjusts sampling frequincy to the sender, and plays content with SoX or ALSA.
 

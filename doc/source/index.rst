@@ -6,7 +6,7 @@
 .. image:: ../images/banner.png
 
 Roc: real-time audio streaming over network
-===========================================
+*******************************************
 
 Roc is a library and tools for real-time streaming of high-quality audio over unreliable network.
 
@@ -22,7 +22,7 @@ Goals:
    :caption: Contents:
 
    tutorial
-   sende_n_receiver
+   sender_n_receiver
    api
    design
    examples
@@ -30,7 +30,7 @@ Goals:
 Try it
 ------
 
-After building (see file `INSTALL.md <https://github.com/roc-project/roc/wiki/Building-%28native%29>`_), tools are instaleld into ``bin/<host>/`` directory.
+After building (see file `INSTALL.md <https://github.com/roc-project/roc/wiki/Building-%28native%29>`_), tools are installed into ``bin/<host>/`` directory.
 
 Example usage:
 
@@ -42,5 +42,5 @@ Example usage:
 
 	``$ roc-send -vv -i song.wav <server_ip>:12345``
 
-See :ref:`sende_n_receiver` for usage details.
+See :ref:`sender_n_receiver` for usage details.
 
