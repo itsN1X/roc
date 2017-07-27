@@ -22,7 +22,8 @@ Goals:
    :caption: Contents:
 
    tutorial
-   sender_n_receiver
+   roc_send
+   roc_recv
    api
    design
    examples

@@ -147,7 +147,9 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'roc', u'roc Documentation',
+    ('roc_send', 'roc-send', u'roc Documentation',
+     [author], 1),
+    ('roc_recv', 'roc-recv', u'roc Documentation',
      [author], 1)
 ]
 
