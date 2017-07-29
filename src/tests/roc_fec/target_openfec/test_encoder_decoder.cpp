@@ -9,141 +9,129 @@
 
 #include <CppUTest/TestHarness.h>
 
-#include "roc_config/config.h"
-
-#include "roc_core/array.h"
-#include "roc_core/byte_buffer.h"
+#include "roc_core/buffer_pool.h"
+#include "roc_core/heap_allocator.h"
 #include "roc_core/log.h"
-#include "roc_core/math.h"
+#include "roc_core/macros.h"
 #include "roc_core/random.h"
-#include "roc_core/stddefs.h"
-
-#include "roc_fec/of_block_decoder.h"
-#include "roc_fec/of_block_encoder.h"
+#include "roc_fec/of_decoder.h"
+#include "roc_fec/of_encoder.h"
 
 namespace roc {
-namespace test {
-
-using namespace fec;
+namespace fec {
 
 namespace {
 
-const size_t N_SOURCE_PACKETS = 20;
-const size_t N_REPAIR_PACKETS = 10;
+const size_t NumSourcePackets = 20;
+const size_t NumRepairPackets = 10;
 
-const size_t SYMB_SZ = ROC_CONFIG_DEFAULT_PACKET_SIZE;
+const size_t PayloadSize = 251;
+
+core::HeapAllocator allocator;
+core::BufferPool<uint8_t> buffer_pool(allocator, PayloadSize, 1);
 
 } // namespace
 
 class Codec {
 public:
-    Codec(const Config& conf)
-        : encoder_(conf, datagram::default_buffer_composer())
-        , decoder_(conf, datagram::default_buffer_composer()) {
-        buffers_.resize(N_SOURCE_PACKETS + N_REPAIR_PACKETS);
+    Codec(const Config& config)
+        : encoder_(config, PayloadSize, allocator)
+        , decoder_(config, PayloadSize, buffer_pool, allocator)
+        , buffers_(allocator, NumSourcePackets + NumRepairPackets) {
+        buffers_.resize(buffers_.max_size());
     }
 
     void encode() {
-        for (size_t i = 0; i < N_SOURCE_PACKETS; ++i) {
-            buffers_[i] = make_buffer();
-            encoder_.write(i, buffers_[i]);
+        for (size_t i = 0; i < NumSourcePackets + NumRepairPackets; ++i) {
+            buffers_[i] = make_buffer_();
+            encoder_.set(i, buffers_[i]);
         }
         encoder_.commit();
-        for (size_t i = 0; i < N_REPAIR_PACKETS; ++i) {
-            buffers_[N_SOURCE_PACKETS + i] = encoder_.read(i);
-        }
         encoder_.reset();
     }
 
     bool decode() {
-        for (size_t i = 0; i < N_SOURCE_PACKETS; ++i) {
-            core::IByteBufferConstSlice decoded = decoder_.repair(i);
+        for (size_t i = 0; i < NumSourcePackets; ++i) {
+            core::Slice<uint8_t> decoded = decoder_.repair(i);
             if (!decoded) {
                 return false;
             }
 
-            LONGS_EQUAL(SYMB_SZ, decoded.size());
+            LONGS_EQUAL(PayloadSize, decoded.size());
 
-            if (memcmp(buffers_[i].data(), decoded.data(), SYMB_SZ) != 0) {
+            if (memcmp(buffers_[i].data(), decoded.data(), PayloadSize) != 0) {
                 return false;
             }
         }
         return true;
     }
 
-    OFBlockEncoder& encoder() {
+    IEncoder& encoder() {
         return encoder_;
     }
 
-    OFBlockDecoder& decoder() {
+    IDecoder& decoder() {
         return decoder_;
     }
 
-    typedef core::Array<core::IByteBufferConstSlice, N_SOURCE_PACKETS + N_REPAIR_PACKETS>
-        codec_buff_t;
-
-    core::IByteBufferConstSlice& get_buffer(const size_t i) {
+    const core::Slice<uint8_t>& get_buffer(const size_t i) {
         return buffers_[i];
     }
 
 private:
-    core::IByteBufferConstSlice make_buffer() {
-        core::IByteBufferPtr buffer =
-            core::ByteBufferTraits::default_composer<SYMB_SZ>().compose();
-
-        buffer->set_size(SYMB_SZ);
-
-        for (size_t j = 0; j < buffer->size(); ++j) {
-            buffer->data()[j] = (uint8_t)core::random(0, 0xff);
+    core::Slice<uint8_t> make_buffer_() {
+        core::Slice<uint8_t> buf = new (buffer_pool) core::Buffer<uint8_t>(buffer_pool);
+        buf.resize(PayloadSize);
+        for (size_t j = 0; j < buf.size(); ++j) {
+            buf.data()[j] = (uint8_t)core::random(0, 0xff);
         }
-
-        return *buffer;
+        return buf;
     }
 
-    OFBlockEncoder encoder_;
-    OFBlockDecoder decoder_;
+    OFEncoder encoder_;
+    OFDecoder decoder_;
 
-    codec_buff_t buffers_;
+    core::Array<core::Slice<uint8_t> > buffers_;
 };
 
-TEST_GROUP(block_codecs) {
+TEST_GROUP(encoder_decoder) {
     Config config;
     void setup() {
-        config.n_source_packets = N_SOURCE_PACKETS;
-        config.n_repair_packets = N_REPAIR_PACKETS;
+        config.n_source_packets = NumSourcePackets;
+        config.n_repair_packets = NumRepairPackets;
     }
 };
 
-TEST(block_codecs, without_loss) {
+TEST(encoder_decoder, without_loss) {
     for (int type = ReedSolomon2m; type != CodecTypeMax; ++type) {
         config.codec = (CodecType)type;
         Codec code(config);
         code.encode();
         // Sending all packets in block without loss.
-        for (size_t i = 0; i < N_SOURCE_PACKETS + N_REPAIR_PACKETS; ++i) {
-            code.decoder().write(i, code.get_buffer(i));
+        for (size_t i = 0; i < NumSourcePackets + NumRepairPackets; ++i) {
+            code.decoder().set(i, code.get_buffer(i));
         }
         CHECK(code.decode());
     }
 }
 
-TEST(block_codecs, loss_1) {
+TEST(encoder_decoder, loss_1) {
     for (int type = ReedSolomon2m; type != CodecTypeMax; ++type) {
         config.codec = (CodecType)type;
         Codec code(config);
         code.encode();
         // Sending all packets in block with one loss.
-        for (size_t i = 0; i < N_SOURCE_PACKETS + N_REPAIR_PACKETS; ++i) {
+        for (size_t i = 0; i < NumSourcePackets + NumRepairPackets; ++i) {
             if (i == 5) {
                 continue;
             }
-            code.decoder().write(i, code.get_buffer(i));
+            code.decoder().set(i, code.get_buffer(i));
         }
         CHECK(code.decode());
     }
 }
 
-TEST(block_codecs, load_test) {
+TEST(encoder_decoder, load_test) {
     enum { NumIterations = 20, LossPercent = 10, MaxLoss = 3 };
     for (int type = ReedSolomon2m; type != CodecTypeMax; ++type) {
         config.codec = (CodecType)type;
@@ -157,12 +145,12 @@ TEST(block_codecs, load_test) {
         for (size_t test_num = 0; test_num < NumIterations; ++test_num) {
             code.encode();
             size_t curr_loss = 0;
-            for (size_t i = 0; i < N_SOURCE_PACKETS + N_REPAIR_PACKETS; ++i) {
+            for (size_t i = 0; i < NumSourcePackets + NumRepairPackets; ++i) {
                 if (core::random(100) < LossPercent && curr_loss <= MaxLoss) {
                     total_loss++;
                     curr_loss++;
                 } else {
-                    code.decoder().write(i, code.get_buffer(i));
+                    code.decoder().set(i, code.get_buffer(i));
                 }
             }
             max_loss = ROC_MAX(max_loss, curr_loss);
@@ -180,5 +168,5 @@ TEST(block_codecs, load_test) {
     }
 }
 
-} // namespace test
+} // namespace fec
 } // namespace roc
