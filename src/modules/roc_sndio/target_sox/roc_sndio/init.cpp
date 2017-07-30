@@ -58,7 +58,7 @@ bool init_done = false;
 
 } // namespace
 
-void init(int options, size_t bufsz) {
+void init(int options) {
     if ((options & InitOnce) && init_done) {
         return;
     }
@@ -71,11 +71,6 @@ void init(int options, size_t bufsz) {
     if (options & InitLog) {
         sox_get_globals()->verbosity = 100;
         sox_get_globals()->output_message_handler = message_handler;
-    }
-
-    if (options & InitBufsz) {
-        sox_get_globals()->bufsiz = bufsz;
-        sox_get_globals()->input_bufsiz = bufsz;
     }
 
     init_done = true;

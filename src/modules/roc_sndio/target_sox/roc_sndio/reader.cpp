@@ -7,13 +7,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "roc_core/helpers.h"
+#include "roc_sndio/reader.h"
 #include "roc_core/log.h"
 #include "roc_core/panic.h"
-
 #include "roc_sndio/default.h"
 #include "roc_sndio/init.h"
-#include "roc_sndio/reader.h"
 
 namespace roc {
 namespace sndio {
@@ -65,26 +63,26 @@ const sox_effect_handler_t Reader::output_handler_ = {
     0                         //
 };
 
-Reader::Reader(audio::ISampleBufferWriter& output,
-               audio::ISampleBufferComposer& composer,
+Reader::Reader(audio::IWriter& output,
+               core::BufferPool<audio::sample_t>& buffer_pool,
                packet::channel_mask_t channels,
                size_t n_samples,
                size_t sample_rate)
     : input_(NULL)
     , chain_(NULL)
     , output_(output)
-    , composer_(composer) {
+    , buffer_pool_(buffer_pool) {
     size_t n_channels = packet::num_channels(channels);
     if (n_channels == 0) {
-        roc_panic("reader: # of channels is zero");
+        roc_panic("sndio reader: # of channels is zero");
     }
 
     if (n_samples == 0) {
-        roc_panic("reader: # of samples is zero");
+        roc_panic("sndio reader: # of samples is zero");
     }
 
     if (sample_rate == 0) {
-        roc_panic("reader: sample rate is zero");
+        roc_panic("sndio reader: sample rate is zero");
     }
 
     buffer_size_ = n_samples * n_channels;
@@ -101,17 +99,17 @@ Reader::Reader(audio::ISampleBufferWriter& output,
 
 Reader::~Reader() {
     if (joinable()) {
-        roc_panic("reader: destructor is called while thread is still running");
+        roc_panic("sndio reader: destructor is called while thread is still running");
     }
 
     close_();
 }
 
 bool Reader::open(const char* name, const char* type) {
-    roc_log(LogDebug, "reader: opening: name=%s type=%s", name, type);
+    roc_log(LogDebug, "sndio reader: opening: name=%s type=%s", name, type);
 
     if (input_) {
-        roc_panic("reader: can't call open() more than once");
+        roc_panic("sndio reader: can't call open() more than once");
     }
 
     if (!detect_defaults(&name, &type)) {
@@ -119,7 +117,7 @@ bool Reader::open(const char* name, const char* type) {
         return false;
     }
 
-    roc_log(LogInfo, "reader: name=%s type=%s", name, type);
+    roc_log(LogInfo, "sndio reader: name=%s type=%s", name, type);
 
     sndio::init();
 
@@ -198,10 +196,10 @@ void Reader::stop() {
 }
 
 void Reader::run() {
-    roc_log(LogDebug, "reader: starting thread");
+    roc_log(LogDebug, "sndio reader: starting thread");
 
     if (!chain_) {
-        roc_panic("reader: thread is started before open() returnes success");
+        roc_panic("sndio reader: thread is started before open() returnes success");
     }
 
     int err = sox_flow_effects(chain_, NULL, NULL);
@@ -211,7 +209,7 @@ void Reader::run() {
 
     close_();
 
-    roc_log(LogDebug, "reader: finishing thread, read %lu buffers",
+    roc_log(LogDebug, "sndio reader: finishing thread, read %lu buffers",
             (unsigned long)n_bufs_);
 }
 
@@ -234,7 +232,7 @@ int Reader::output_cb_(sox_effect_t* eff,
 
     Reader& self = *(Reader*)eff->priv;
     if (self.stop_) {
-        roc_log(LogInfo, "reader: stopped, exiting");
+        roc_log(LogInfo, "sndio reader: stopped, exiting");
         return SOX_EOF;
     }
 
@@ -253,26 +251,19 @@ int Reader::output_cb_(sox_effect_t* eff,
 
 void Reader::write_(const sox_sample_t* buf, size_t bufsz, bool eof) {
     while (bufsz != 0) {
-        if (!buffer_) {
-            if (!(buffer_ = composer_.compose())) {
-                roc_log(LogError, "reader: can't compose buffer");
+        if (!frame_.samples) {
+            frame_.samples =
+                new (buffer_pool_) core::Buffer<audio::sample_t>(buffer_pool_);
+
+            if (!frame_.samples) {
+                roc_log(LogError, "sndio reader: can't allocate buffer");
                 return;
             }
 
-            if (buffer_size_ > buffer_->max_size()) {
-                roc_panic(
-                    "reader:"
-                    " maximum buffer size should be at least n_channels * n_samples:"
-                    " decoder_bufsz=%lu, max_bufsz=%lu, n_channels=%lu",
-                    (unsigned long)buffer_size_,        //
-                    (unsigned long)buffer_->max_size(), //
-                    (unsigned long)out_signal_.channels);
-            }
-
-            buffer_->set_size(buffer_size_);
+            frame_.samples.resize(buffer_size_);
         }
 
-        packet::sample_t* samples = buffer_->data();
+        audio::sample_t* samples = frame_.samples.data();
 
         SOX_SAMPLE_LOCALS;
 
@@ -292,21 +283,14 @@ void Reader::write_(const sox_sample_t* buf, size_t bufsz, bool eof) {
         }
 
         if (buffer_pos_ == buffer_size_) {
-            output_.write(*buffer_);
-
-            buffer_ = NULL;
+            output_.write(frame_);
             buffer_pos_ = 0;
-
             n_bufs_++;
         }
     }
 }
 
 void Reader::close_() {
-    if (chain_ || input_) {
-        output_.write(audio::ISampleBufferConstSlice());
-    }
-
     if (chain_) {
         sox_delete_effects_chain(chain_);
         chain_ = NULL;
@@ -315,7 +299,7 @@ void Reader::close_() {
     if (input_) {
         int err = sox_close(input_);
         if (err != SOX_SUCCESS) {
-            roc_panic("sox_close(): can't close input: %s", sox_strerror(err));
+            roc_panic("sndio reader: can't close input: %s", sox_strerror(err));
         }
         input_ = NULL;
     }

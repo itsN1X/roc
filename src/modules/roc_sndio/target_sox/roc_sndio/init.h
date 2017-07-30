@@ -13,7 +13,7 @@
 #ifndef ROC_SNDIO_INIT_H_
 #define ROC_SNDIO_INIT_H_
 
-#include "roc_config/config.h"
+#include "roc_core/stddefs.h"
 
 namespace roc {
 namespace sndio {
@@ -21,8 +21,7 @@ namespace sndio {
 enum {
     InitOnce = (1 << 0), //!< Don't init twice.
     InitSox = (1 << 1),  //!< Call sox_init().
-    InitLog = (1 << 2),  //!< Install SoX log handler.
-    InitBufsz = (1 << 3) //!< Set SoX buffer sizes.
+    InitLog = (1 << 2)   //!< Install SoX log handler.
 };
 
 //! Initialize SoX.
@@ -41,9 +40,7 @@ enum {
 //!
 //! @note
 //!  It's not allowed to call sox_init() twice without paired sox_quit().
-void init(int options = InitOnce | InitSox | InitBufsz | InitLog, //
-          size_t bufsz = ROC_CONFIG_MAX_CHANNELS
-              * ROC_CONFIG_DEFAULT_RECEIVER_TICK_SAMPLES);
+void init(int options = InitOnce | InitSox | InitLog);
 
 } // namespace sndio
 } // namespace roc

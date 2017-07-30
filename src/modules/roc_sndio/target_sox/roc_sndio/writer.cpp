@@ -7,29 +7,32 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+#include "roc_sndio/writer.h"
 #include "roc_core/log.h"
 #include "roc_core/panic.h"
-#include "roc_core/scoped_ptr.h"
-
+#include "roc_core/unique_ptr.h"
 #include "roc_sndio/default.h"
 #include "roc_sndio/init.h"
-#include "roc_sndio/writer.h"
 
 namespace roc {
 namespace sndio {
 
-Writer::Writer(audio::ISampleBufferReader& input,
+Writer::Writer(audio::IReader& input,
+               core::BufferPool<audio::sample_t>& buffer_pool,
+               core::IAllocator& allocator,
                packet::channel_mask_t channels,
                size_t sample_rate)
     : output_(NULL)
-    , input_(input) {
+    , input_(input)
+    , buffer_pool_(buffer_pool)
+    , allocator_(allocator) {
     size_t n_channels = packet::num_channels(channels);
     if (n_channels == 0) {
-        roc_panic("writer: # of channels is zero");
+        roc_panic("sndio writer: # of channels is zero");
     }
 
     if (sample_rate == 0) {
-        roc_panic("writer: sample rate is zero");
+        roc_panic("sndio writer: sample rate is zero");
     }
 
     clips_ = 0;
@@ -43,17 +46,16 @@ Writer::Writer(audio::ISampleBufferReader& input,
 
 Writer::~Writer() {
     if (joinable()) {
-        roc_panic("writer: destructor is called while thread is still running");
+        roc_panic("sndio writer: destructor is called while thread is still running");
     }
-
     close_();
 }
 
 bool Writer::open(const char* name, const char* type) {
-    roc_log(LogDebug, "writer: opening: name=%s type=%s", name, type);
+    roc_log(LogDebug, "sndio writer: opening: name=%s type=%s", name, type);
 
     if (output_) {
-        roc_panic("writer: can't call open() more than once");
+        roc_panic("sndio writer: can't call open() more than once");
     }
 
     if (!detect_defaults(&name, &type)) {
@@ -61,13 +63,13 @@ bool Writer::open(const char* name, const char* type) {
         return false;
     }
 
-    roc_log(LogInfo, "writer: name=%s type=%s", name, type);
+    roc_log(LogInfo, "sndio writer: name=%s type=%s", name, type);
 
     sndio::init();
 
     output_ = sox_open_write(name, &out_signal_, NULL, type, NULL, NULL);
     if (!output_) {
-        roc_log(LogError, "can't open writer: name=%s type=%s", name, type);
+        roc_log(LogError, "sndio writer: can't open writer: name=%s type=%s", name, type);
         return false;
     }
 
@@ -79,41 +81,49 @@ void Writer::stop() {
 }
 
 void Writer::run() {
-    roc_log(LogDebug, "writer: starting thread");
+    roc_log(LogDebug, "sndio writer: starting thread");
 
     if (!output_) {
-        roc_panic("writer: thread is started before open() returnes success");
+        roc_panic("sndio writer: thread is started before open() returnes success");
     }
 
     loop_();
     close_();
 
-    roc_log(LogDebug, "writer: finishing thread, wrote %lu buffers",
+    roc_log(LogDebug, "sndio writer: finishing thread, wrote %lu buffers",
             (unsigned long)n_bufs_);
 }
 
 void Writer::loop_() {
     const size_t outbuf_sz = sox_get_globals()->bufsiz;
 
-    core::ScopedPtr<sox_sample_t, core::MallocOwnership> outptr(
-        (sox_sample_t*)malloc(sizeof(sox_sample_t) * outbuf_sz));
+    core::UniquePtr<sox_sample_t> outptr(new (allocator_) sox_sample_t[outbuf_sz],
+                                         allocator_);
+
+    if (!outptr) {
+        roc_panic("sndio writer: can't allocate output buffer");
+    }
 
     sox_sample_t* outbuf = outptr.get();
     size_t outbuf_pos = 0;
 
+    audio::Frame frame;
+    frame.samples = new (buffer_pool_) core::Buffer<audio::sample_t>(buffer_pool_);
+    if (!frame.samples) {
+        roc_panic("sndio writer: can't allocate input buffer");
+    }
+    frame.samples.resize(outbuf_sz);
+
     SOX_SAMPLE_LOCALS;
 
     while (!stop_) {
-        audio::ISampleBufferConstSlice buffer = input_.read();
-        if (!buffer) {
-            roc_log(LogInfo, "writer: got empty buffer, exiting");
-            break;
-        }
+        input_.read(frame);
 
         n_bufs_++;
 
-        const packet::sample_t* samples = buffer.data();
-        size_t n_samples = buffer.size();
+        const audio::sample_t* samples = frame.samples.data();
+        size_t n_samples = frame.samples.size();
+        roc_panic_if(n_samples != outbuf_sz);
 
         while (n_samples > 0) {
             for (; outbuf_pos < outbuf_sz && n_samples > 0; outbuf_pos++) {
@@ -139,7 +149,7 @@ void Writer::loop_() {
 bool Writer::write_(const sox_sample_t* samples, size_t n_samples) {
     if (n_samples > 0) {
         if (sox_write(output_, samples, n_samples) != n_samples) {
-            roc_log(LogError, "writer: can't write output buffer, exiting");
+            roc_log(LogError, "sndio writer: can't write output buffer, exiting");
             return false;
         }
     }
@@ -151,11 +161,11 @@ void Writer::close_() {
         return;
     }
 
-    roc_log(LogDebug, "writer: closing output");
+    roc_log(LogDebug, "sndio writer: closing output");
 
     int err = sox_close(output_);
     if (err != SOX_SUCCESS) {
-        roc_panic("sox_close(): can't close output: %s", sox_strerror(err));
+        roc_panic("sndio writer: can't close output: %s", sox_strerror(err));
     }
 
     output_ = NULL;
