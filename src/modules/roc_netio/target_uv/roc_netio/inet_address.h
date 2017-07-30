@@ -15,23 +15,23 @@
 
 #include <uv.h>
 
-#include "roc_datagram/address.h"
+#include "roc_packet/address.h"
 
 namespace roc {
 namespace netio {
 
-//! Convert datagram::Address to sockaddr_in.
-void to_inet_address(const datagram::Address&, sockaddr_in& result);
+//! Convert packet::Address to sockaddr_in.
+void to_inet_address(const packet::Address&, sockaddr_in& result);
 
-//! Convert sockaddr_in to datagram::Address.
-void from_inet_address(const sockaddr_in&, datagram::Address& result);
+//! Convert sockaddr_in to packet::Address.
+void from_inet_address(const sockaddr_in&, packet::Address& result);
 
 //! Parse address from string.
 //! @remarks
 //!  @p string should be in form "[<IP>]:<PORT>".
 //! @returns
 //!  false if string can't be parsed or hostname can't be resolved.
-bool parse_address(const char* string, datagram::Address& result);
+bool parse_address(const char* string, packet::Address& result);
 
 } // namespace netio
 } // namespace roc

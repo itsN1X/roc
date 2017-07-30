@@ -9,34 +9,35 @@
 
 #include <CppUTest/TestHarness.h>
 
-#include "roc_core/log.h"
+#include "roc_core/buffer_pool.h"
+#include "roc_core/heap_allocator.h"
 #include "roc_netio/transceiver.h"
-
-#include "test_datagram_blocking_queue.h"
+#include "roc_packet/concurrent_queue.h"
+#include "roc_packet/packet_pool.h"
 
 namespace roc {
-namespace test {
+namespace netio {
 
-using namespace netio;
-using namespace datagram;
+namespace {
 
-TEST_GROUP(transceiver) {
-    Address make_address(int number){ Address addr;
-        addr.ip[0] = 127;
-        addr.ip[1] = 0;
-        addr.ip[2] = 0;
-        addr.ip[3] = 1;
-        addr.port = port_t(10000 + number);
-        return addr;
-    }
-};
+core::HeapAllocator allocator;
+core::BufferPool<uint8_t> buffer_pool(allocator, 1000, 1);
+packet::PacketPool packet_pool(allocator, 1);
+
+} // namespace
+
+TEST_GROUP(transceiver){};
 
 TEST(transceiver, no_thread) {
-    Transceiver trx;
+    Transceiver trx(packet_pool, buffer_pool, allocator);
+
+    CHECK(trx.valid());
 }
 
 TEST(transceiver, start_stop) {
-    Transceiver trx;
+    Transceiver trx(packet_pool, buffer_pool, allocator);
+
+    CHECK(trx.valid());
 
     trx.start();
 
@@ -45,32 +46,26 @@ TEST(transceiver, start_stop) {
 }
 
 TEST(transceiver, stop_start) {
-    Transceiver trx;
+    Transceiver trx(packet_pool, buffer_pool, allocator);
+
+    CHECK(trx.valid());
 
     trx.stop();
 
     trx.start();
     trx.join();
-}
-
-TEST(transceiver, add_no_thread) {
-    DatagramBlockingQueue queue;
-
-    Address tx_addr = make_address(1);
-    Address rx_addr = make_address(2);
-
-    Transceiver trx;
-    CHECK(trx.add_udp_sender(tx_addr));
-    CHECK(trx.add_udp_receiver(rx_addr, queue));
 }
 
 TEST(transceiver, add_start_stop) {
-    DatagramBlockingQueue queue;
+    packet::ConcurrentQueue queue(0, true);
 
-    Address tx_addr = make_address(1);
-    Address rx_addr = make_address(2);
+    Transceiver trx(packet_pool, buffer_pool, allocator);
 
-    Transceiver trx;
+    CHECK(trx.valid());
+
+    packet::Address tx_addr;
+    packet::Address rx_addr;
+
     CHECK(trx.add_udp_sender(tx_addr));
     CHECK(trx.add_udp_receiver(rx_addr, queue));
 
@@ -80,5 +75,48 @@ TEST(transceiver, add_start_stop) {
     trx.join();
 }
 
-} // namespace test
+TEST(transceiver, bind_any) {
+    packet::ConcurrentQueue queue(0, true);
+
+    Transceiver trx(packet_pool, buffer_pool, allocator);
+
+    CHECK(trx.valid());
+
+    packet::Address tx_addr;
+    packet::Address rx_addr;
+
+    CHECK(trx.add_udp_sender(tx_addr));
+    CHECK(trx.add_udp_receiver(rx_addr, queue));
+
+    CHECK(tx_addr.port != 0);
+    CHECK(rx_addr.port != 0);
+}
+
+TEST(transceiver, bind_lo) {
+    packet::ConcurrentQueue queue(0, true);
+
+    Transceiver trx(packet_pool, buffer_pool, allocator);
+
+    CHECK(trx.valid());
+
+    packet::Address tx_addr;
+    tx_addr.ip[0] = 127;
+    tx_addr.ip[1] = 0;
+    tx_addr.ip[2] = 0;
+    tx_addr.ip[3] = 1;
+
+    packet::Address rx_addr;
+    rx_addr.ip[0] = 127;
+    rx_addr.ip[1] = 0;
+    rx_addr.ip[2] = 0;
+    rx_addr.ip[3] = 1;
+
+    CHECK(trx.add_udp_sender(tx_addr));
+    CHECK(trx.add_udp_receiver(rx_addr, queue));
+
+    CHECK(tx_addr.port != 0);
+    CHECK(rx_addr.port != 0);
+}
+
+} // namespace netio
 } // namespace roc

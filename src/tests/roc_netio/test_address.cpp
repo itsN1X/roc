@@ -9,29 +9,15 @@
 
 #include <CppUTest/TestHarness.h>
 
-#include "roc_core/log.h"
 #include "roc_netio/inet_address.h"
 
 namespace roc {
-namespace test {
+namespace netio {
 
-using namespace netio;
-using namespace datagram;
-
-TEST_GROUP(address) {
-    LogLevel level;
-
-    void setup() {
-        level = core::set_log_level(LogNone);
-    }
-
-    void teardown() {
-        core::set_log_level(level);
-    }
-};
+TEST_GROUP(address){};
 
 TEST(address, regular) {
-    Address addr;
+    packet::Address addr;
     CHECK(parse_address("1.2.0.255:123", addr));
 
     LONGS_EQUAL(1, addr.ip[0]);
@@ -42,7 +28,7 @@ TEST(address, regular) {
 }
 
 TEST(address, min_port) {
-    Address addr;
+    packet::Address addr;
     CHECK(parse_address("1.2.3.4:1", addr));
 
     LONGS_EQUAL(1, addr.ip[0]);
@@ -53,7 +39,7 @@ TEST(address, min_port) {
 }
 
 TEST(address, max_port) {
-    Address addr;
+    packet::Address addr;
     CHECK(parse_address("1.2.3.4:65535", addr));
 
     LONGS_EQUAL(1, addr.ip[0]);
@@ -64,7 +50,7 @@ TEST(address, max_port) {
 }
 
 TEST(address, empty_ip) {
-    Address addr;
+    packet::Address addr;
     CHECK(parse_address(":123", addr));
 
     LONGS_EQUAL(0, addr.ip[0]);
@@ -75,7 +61,7 @@ TEST(address, empty_ip) {
 }
 
 TEST(address, bad_format) {
-    Address addr;
+    packet::Address addr;
 
     CHECK(!parse_address(NULL, addr));
     CHECK(!parse_address("", addr));
@@ -90,7 +76,7 @@ TEST(address, bad_format) {
 }
 
 TEST(address, bad_range) {
-    Address addr;
+    packet::Address addr;
 
     CHECK(!parse_address(NULL, addr));
     CHECK(!parse_address("256.1.2.3:123", addr));
@@ -100,5 +86,5 @@ TEST(address, bad_range) {
     CHECK(!parse_address("1.2.3.4:999999999999999", addr));
 }
 
-} // namespace test
+} // namespace netio
 } // namespace roc

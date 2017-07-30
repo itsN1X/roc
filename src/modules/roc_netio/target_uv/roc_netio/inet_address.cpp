@@ -7,23 +7,19 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "roc_core/byte_order.h"
+#include "roc_netio/inet_address.h"
+#include "roc_core/endian.h"
 #include "roc_core/log.h"
 #include "roc_core/panic.h"
 #include "roc_core/stddefs.h"
-
-#include "roc_datagram/address_to_str.h"
-#include "roc_netio/inet_address.h"
+#include "roc_packet/address_to_str.h"
 
 namespace roc {
 namespace netio {
 
-void to_inet_address(const datagram::Address& addr, sockaddr_in& sa) {
-    const uint32_t ip                  //
-        = ((uint32_t)addr.ip[0] << 24) //
-        | ((uint32_t)addr.ip[1] << 16) //
-        | ((uint32_t)addr.ip[2] << 8)  //
-        | ((uint32_t)addr.ip[3]);
+void to_inet_address(const packet::Address& addr, sockaddr_in& sa) {
+    const uint32_t ip = ((uint32_t)addr.ip[0] << 24) | ((uint32_t)addr.ip[1] << 16)
+        | ((uint32_t)addr.ip[2] << 8) | ((uint32_t)addr.ip[3]);
 
     memset(&sa, 0, sizeof(sa));
 
@@ -32,7 +28,7 @@ void to_inet_address(const datagram::Address& addr, sockaddr_in& sa) {
     sa.sin_addr.s_addr = ROC_HTON_32(ip);
 }
 
-void from_inet_address(const sockaddr_in& sa, datagram::Address& addr) {
+void from_inet_address(const sockaddr_in& sa, packet::Address& addr) {
     const uint32_t ip = ROC_NTOH_32(sa.sin_addr.s_addr);
 
     addr.ip[0] = uint8_t((ip >> 24) & 0xff);
@@ -43,7 +39,7 @@ void from_inet_address(const sockaddr_in& sa, datagram::Address& addr) {
     addr.port = ROC_NTOH_16(sa.sin_port);
 }
 
-bool parse_address(const char* input, datagram::Address& result) {
+bool parse_address(const char* input, packet::Address& result) {
     if (input == NULL) {
         roc_log(LogError, "parse address: string is null");
         return false;
@@ -102,12 +98,11 @@ bool parse_address(const char* input, datagram::Address& result) {
         }
         from_inet_address(sa, result);
     } else {
-        result = datagram::Address();
-        result.port = (datagram::port_t)port_num;
+        result = packet::Address();
+        result.port = (packet::port_t)port_num;
     }
 
-    roc_log(LogDebug, "parse address: parsed %s",
-            datagram::address_to_str(result).c_str());
+    roc_log(LogDebug, "parse address: parsed %s", packet::address_to_str(result).c_str());
 
     return true;
 }
