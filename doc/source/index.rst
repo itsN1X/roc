@@ -21,6 +21,7 @@ Goals:
    :maxdepth: 1
    :caption: Contents:
 
+   overview
    tutorial
    roc_send
    roc_recv
@@ -43,5 +44,5 @@ Example usage:
 
 	``$ roc-send -vv -i song.wav <server_ip>:12345``
 
-See :ref:`sender_n_receiver` for usage details.
+See :ref:`roc_send` and :ref:`roc_recv` for usage details.
 

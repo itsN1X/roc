@@ -59,7 +59,7 @@ OPTIONS
 
 ADDRESS should be in form of [IP]:PORT. IP defaults to 0.0.0.0.
 
-OUTPUT
+INPUT
 ======
 
 Arguments for '--input' and '--type' options are passed to SoX:
