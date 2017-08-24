@@ -7,29 +7,29 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-//! @file roc_packet/imonitor.h
-//! @brief Monitor interface.
+//! @file roc_packet/ireader.h
+//! @brief Packet reader interface.
 
-#ifndef ROC_PACKET_IMONITOR_H_
-#define ROC_PACKET_IMONITOR_H_
+#ifndef ROC_PACKET_IREADER_H_
+#define ROC_PACKET_IREADER_H_
 
-#include "roc_core/list_node.h"
+#include "roc_packet/packet.h"
 
 namespace roc {
 namespace packet {
 
-//! Monitor interface.
-class IMonitor : public core::ListNode {
+//! Packet reader interface.
+class IReader {
 public:
-    virtual ~IMonitor();
+    virtual ~IReader();
 
-    //! Update session.
+    //! Read packet.
     //! @returns
-    //!  false if session is broken and should be destroyed.
-    virtual bool update() = 0;
+    //!  next available packet or NULL if there are no packets.
+    virtual PacketPtr read() = 0;
 };
 
 } // namespace packet
 } // namespace roc
 
-#endif // ROC_PACKET_IMONITOR_H_
+#endif // ROC_PACKET_IREADER_H_

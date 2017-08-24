@@ -7,7 +7,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-#include "roc_packet/units.h"
+#include "roc_packet/ireader.h"
 
-const roc::packet::sample_t roc::packet::sample_max_val = 1;
-const roc::packet::sample_t roc::packet::sample_min_val = -1;
+namespace roc {
+namespace packet {
+
+IReader::~IReader() {
+}
+
+} // namespace packet
+} // namespace roc

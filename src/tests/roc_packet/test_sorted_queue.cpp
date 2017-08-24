@@ -9,23 +9,34 @@
 
 #include <CppUTest/TestHarness.h>
 
-#include "roc_packet/packet_queue.h"
-
-#include "test_packet.h"
+#include "roc_core/heap_allocator.h"
+#include "roc_packet/packet_pool.h"
+#include "roc_packet/sorted_queue.h"
 
 namespace roc {
-namespace test {
+namespace packet {
 
-using namespace packet;
+namespace {
 
-TEST_GROUP(packet_queue) {
-    IPacketPtr new_packet(seqnum_t sn) {
-        return new_audio_packet(0, sn, 0);
+core::HeapAllocator allocator;
+PacketPool pool(allocator, 1);
+
+} // namespace
+
+TEST_GROUP(sorted_queue) {
+    PacketPtr new_packet(seqnum_t sn) {
+        PacketPtr packet = new(pool) Packet(pool);
+        CHECK(packet);
+
+        packet->add_flags(Packet::FlagRTP);
+        packet->rtp()->seqnum = sn;
+
+        return packet;
     }
 };
 
-TEST(packet_queue, empty) {
-    PacketQueue queue;
+TEST(sorted_queue, empty) {
+    SortedQueue queue(0);
 
     CHECK(!queue.tail());
     CHECK(!queue.head());
@@ -35,11 +46,11 @@ TEST(packet_queue, empty) {
     LONGS_EQUAL(0, queue.size());
 }
 
-TEST(packet_queue, two_packets) {
-    PacketQueue queue;
+TEST(sorted_queue, two_packets) {
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(1);
-    IPacketPtr p2 = new_packet(2);
+    PacketPtr p1 = new_packet(1);
+    PacketPtr p2 = new_packet(2);
 
     queue.write(p2);
     queue.write(p1);
@@ -68,38 +79,38 @@ TEST(packet_queue, two_packets) {
     LONGS_EQUAL(0, queue.size());
 }
 
-TEST(packet_queue, many_packets) {
-    const size_t num_packets = 10;
+TEST(sorted_queue, many_packets) {
+    enum { NumPackets = 10 };
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    IPacketPtr packets[num_packets];
+    PacketPtr packets[NumPackets];
 
-    for (seqnum_t n = 0; n < num_packets; n++) {
+    for (seqnum_t n = 0; n < NumPackets; n++) {
         packets[n] = new_packet(n);
     }
 
-    for (ssize_t n = ssize_t(num_packets) - 1; n >= 0; n--) {
-        queue.write(packets[n]);
+    for (ssize_t n = 0; n < NumPackets; n++) {
+        queue.write(packets[(n + NumPackets / 2) % NumPackets]);
     }
 
-    LONGS_EQUAL(num_packets, queue.size());
+    LONGS_EQUAL(NumPackets, queue.size());
 
     CHECK(queue.head() == packets[0]);
-    CHECK(queue.tail() == packets[num_packets - 1]);
+    CHECK(queue.tail() == packets[NumPackets - 1]);
 
-    for (size_t n = 0; n < num_packets; n++) {
+    for (size_t n = 0; n < NumPackets; n++) {
         CHECK(queue.read() == packets[n]);
     }
 
     LONGS_EQUAL(0, queue.size());
 }
 
-TEST(packet_queue, out_of_order) {
-    PacketQueue queue;
+TEST(sorted_queue, out_of_order) {
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(1);
-    IPacketPtr p2 = new_packet(2);
+    PacketPtr p1 = new_packet(1);
+    PacketPtr p2 = new_packet(2);
 
     queue.write(p2);
 
@@ -127,11 +138,11 @@ TEST(packet_queue, out_of_order) {
     CHECK(!queue.read());
 }
 
-TEST(packet_queue, one_duplicate) {
-    PacketQueue queue;
+TEST(sorted_queue, one_duplicate) {
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(1);
-    IPacketPtr p2 = new_packet(1);
+    PacketPtr p1 = new_packet(1);
+    PacketPtr p2 = new_packet(1);
 
     queue.write(p1);
     queue.write(p2);
@@ -151,36 +162,36 @@ TEST(packet_queue, one_duplicate) {
     CHECK(!queue.read());
 }
 
-TEST(packet_queue, many_duplicates) {
-    const size_t num_packets = 10;
+TEST(sorted_queue, many_duplicates) {
+    const size_t NumPackets = 10;
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    for (seqnum_t n = 0; n < num_packets; n++) {
+    for (seqnum_t n = 0; n < NumPackets; n++) {
         queue.write(new_packet(n));
     }
 
-    LONGS_EQUAL(num_packets, queue.size());
+    LONGS_EQUAL(NumPackets, queue.size());
 
-    for (seqnum_t n = 0; n < num_packets; n++) {
+    for (seqnum_t n = 0; n < NumPackets; n++) {
         queue.write(new_packet(n));
     }
 
-    LONGS_EQUAL(num_packets, queue.size());
+    LONGS_EQUAL(NumPackets, queue.size());
 
-    for (seqnum_t n = 0; n < num_packets; n++) {
-        CHECK(queue.read()->rtp()->seqnum() == n);
+    for (seqnum_t n = 0; n < NumPackets; n++) {
+        CHECK(queue.read()->rtp()->seqnum == n);
     }
 
     LONGS_EQUAL(0, queue.size());
 }
 
-TEST(packet_queue, max_size) {
-    PacketQueue queue(2);
+TEST(sorted_queue, max_size) {
+    SortedQueue queue(2);
 
-    IPacketPtr p1 = new_packet(1);
-    IPacketPtr p2 = new_packet(2);
-    IPacketPtr p3 = new_packet(3);
+    PacketPtr p1 = new_packet(1);
+    PacketPtr p2 = new_packet(2);
+    PacketPtr p3 = new_packet(3);
 
     queue.write(p1);
     queue.write(p2);
@@ -203,14 +214,14 @@ TEST(packet_queue, max_size) {
     CHECK(queue.tail() == p3);
 }
 
-TEST(packet_queue, overflow_ordered1) {
+TEST(sorted_queue, overflow_ordered1) {
     const seqnum_t sn = seqnum_t(-1);
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(seqnum_t(sn - 10));
-    IPacketPtr p2 = new_packet(sn);
-    IPacketPtr p3 = new_packet(seqnum_t(sn + 10));
+    PacketPtr p1 = new_packet(seqnum_t(sn - 10));
+    PacketPtr p2 = new_packet(sn);
+    PacketPtr p3 = new_packet(seqnum_t(sn + 10));
 
     queue.write(p1);
     queue.write(p2);
@@ -227,14 +238,14 @@ TEST(packet_queue, overflow_ordered1) {
     CHECK(!queue.read());
 }
 
-TEST(packet_queue, overflow_ordered2) {
+TEST(sorted_queue, overflow_ordered2) {
     const seqnum_t sn = seqnum_t(-1) >> 1;
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(seqnum_t(sn - 10));
-    IPacketPtr p2 = new_packet(sn);
-    IPacketPtr p3 = new_packet(seqnum_t(sn + 10));
+    PacketPtr p1 = new_packet(seqnum_t(sn - 10));
+    PacketPtr p2 = new_packet(sn);
+    PacketPtr p3 = new_packet(seqnum_t(sn + 10));
 
     queue.write(p1);
     queue.write(p2);
@@ -251,14 +262,14 @@ TEST(packet_queue, overflow_ordered2) {
     CHECK(!queue.read());
 }
 
-TEST(packet_queue, overflow_sorting) {
+TEST(sorted_queue, overflow_sorting) {
     const seqnum_t sn = seqnum_t(-1);
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(seqnum_t(sn - 10));
-    IPacketPtr p2 = new_packet(sn);
-    IPacketPtr p3 = new_packet(seqnum_t(sn + 10));
+    PacketPtr p1 = new_packet(seqnum_t(sn - 10));
+    PacketPtr p2 = new_packet(sn);
+    PacketPtr p3 = new_packet(seqnum_t(sn + 10));
 
     queue.write(p2);
     queue.write(p1);
@@ -275,14 +286,14 @@ TEST(packet_queue, overflow_sorting) {
     CHECK(!queue.read());
 }
 
-TEST(packet_queue, overflow_out_of_order) {
+TEST(sorted_queue, overflow_out_of_order) {
     const seqnum_t sn = seqnum_t(-1);
 
-    PacketQueue queue;
+    SortedQueue queue(0);
 
-    IPacketPtr p1 = new_packet(seqnum_t(sn - 10));
-    IPacketPtr p2 = new_packet(sn);
-    IPacketPtr p3 = new_packet(sn / 2);
+    PacketPtr p1 = new_packet(seqnum_t(sn - 10));
+    PacketPtr p2 = new_packet(sn);
+    PacketPtr p3 = new_packet(sn / 2);
 
     queue.write(p1);
 
@@ -305,5 +316,5 @@ TEST(packet_queue, overflow_out_of_order) {
     CHECK(!queue.read());
 }
 
-} // namespace test
+} // namespace packet
 } // namespace roc

@@ -7,21 +7,26 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-//! @file roc_packet/target_stdio/roc_packet/print_packet.h
+//! @file roc_packet/target_stdio/roc_packet/print.h
 //! @brief Print packet to stdout.
 
-#ifndef ROC_PACKET_PRINT_PACKET_H_
-#define ROC_PACKET_PRINT_PACKET_H_
+#ifndef ROC_PACKET_PRINT_H_
+#define ROC_PACKET_PRINT_H_
 
-#include "roc_packet/ipacket.h"
+#include "roc_packet/packet.h"
 
 namespace roc {
 namespace packet {
 
+//! Print flags.
+enum {
+    PrintPayload = (1 << 0) //!< Print packet payload.
+};
+
 //! Print packet to stderr.
-void print_packet(const IPacket&, bool print_payload);
+void print(const Packet& packet, int flags);
 
 } // namespace packet
 } // namespace roc
 
-#endif // ROC_PACKET_PRINT_PACKET_H_
+#endif // ROC_PACKET_PRINT_H_
